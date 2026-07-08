@@ -1,0 +1,114 @@
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+use featurize_core::traits::{Div, Grayscale, Normalize, Scale};
+use js_sys::*;
+
+#[cfg(target_family = "wasm")]
+use wasm_bindgen::prelude::*;
+
+use crate::model::Model;
+use crate::state::build_and_load_model;
+
+use burn::tensor::Tensor;
+use featurize_core::pipeline::Pipeline;
+
+#[cfg(feature = "flex")]
+use burn::backend::Flex as Backend;
+#[cfg(feature = "wgpu")]
+use burn::backend::Wgpu as Backend;
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen(start))]
+pub fn start() {
+    console_error_panic_hook::set_once();
+}
+
+/// Mnist structure that corresponds to JavaScript class.
+/// See:[exporting-rust-struct](https://rustwasm.github.io/wasm-bindgen/contributing/design/exporting-rust-struct.html)
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
+pub struct Mnist {
+    model: Option<Model<Backend>>,
+}
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
+impl Mnist {
+    /// Constructor called by JavaScripts with the new keyword.
+    #[cfg_attr(target_family = "wasm", wasm_bindgen(constructor))]
+    pub fn new() -> Self {
+        console_error_panic_hook::set_once();
+        Self { model: None }
+    }
+
+    /// Returns the inference results.
+    ///
+    /// This method is called from JavaScript via generated wrapper code by wasm-bindgen.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - A f32 slice of input 300x300 image
+    ///
+    /// See bindgen support types for passing and returning arrays:
+    /// * [number-slices](https://rustwasm.github.io/wasm-bindgen/reference/types/number-slices.html)
+    /// * [boxed-number-slices](https://rustwasm.github.io/wasm-bindgen/reference/types/boxed-number-slices.html)
+    ///
+    pub async fn inference(
+        &mut self,
+        rgba_data: &[f32],
+    ) -> Result<js_sys::Object, String> {
+        if self.model.is_none() {
+            self.model = Some(build_and_load_model().await);
+        }
+
+        let mut preprocessed_data = vec![0.0; 28 * 28];
+        let mut preprocessor = Pipeline::new(vec![300, 300, 4], 4)
+            .apply_transform(Scale {
+                out_shape: vec![28, 28, 4],
+                in_channels: None,
+            })
+            .apply_transform(Grayscale {
+                in_channels: 4,
+                out_size: 28 * 28,
+                invert: true,
+            })
+            .apply_point(Div {
+                factor: 255.0,
+                size: 28 * 28,
+            })
+            .apply_point(Normalize {
+                mean: 0.1307,
+                std: 0.3081,
+                size: 28 * 28,
+            })
+            .build();
+
+        preprocessor.execute(rgba_data, &mut preprocessed_data);
+
+        let preprocessed_array = Array::new();
+        for value in preprocessed_data.iter() {
+            preprocessed_array.push(&(*value).into());
+        }
+
+        let device = Default::default();
+
+        let model = self.model.as_ref().unwrap();
+        let input = Tensor::<Backend, 1>::from_floats(preprocessed_data.as_slice(), &device)
+            .reshape([1, 28, 28]);
+
+        let output: Tensor<Backend, 2> = model.forward(input);
+
+        let output = burn::tensor::activation::softmax(output, 1);
+
+        let output = output.into_data_async().await.unwrap();
+
+        let predictions = Array::new();
+        for value in output.iter::<f32>() {
+            predictions.push(&value.into());
+        }
+
+        let result = js_sys::Object::new();
+        js_sys::Reflect::set(&result, &"predictions".into(), &predictions).unwrap();
+        js_sys::Reflect::set(&result, &"preprocessed".into(), &preprocessed_array).unwrap();
+
+        Ok(result)
+    }
+}
