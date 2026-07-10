@@ -4,16 +4,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::traits::{
-    ElementElement, ElementMark, ElementOp, FusedPoint, Head, Link, PipeOp, TransformElement,
-    ResampleMark, TransformOp, RootOp, Stage,
+    ElementElement, ElementMark, ElementOp, Fused, Head, Link, ResampleMark, Stage, TransformElement, TransformOp
 };
 
 /// Initializer
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 pub struct Pipeline {
-    stride: usize,
-    shape: Vec<usize>,
     in_buf: Option<Vec<f32>>,
     out_buf: Option<Vec<f32>>,
 }
@@ -34,8 +31,6 @@ where
     stages: T,
     // Options
     // Input data parameters
-    stride: usize,
-    shape: Vec<usize>,
     // These are allocated only at the build stage
     in_buf: Option<Vec<f32>>,
     out_buf: Option<Vec<f32>>,
@@ -53,8 +48,6 @@ where
     stages: T,
     // Options
     // Input data parameters
-    stride: usize,
-    shape: Vec<usize>,
     // These are allocated only at the build stage
     in_buf: Option<Vec<f32>>,
     out_buf: Option<Vec<f32>>,
@@ -63,44 +56,38 @@ where
 
 #[allow(dead_code)]
 impl Pipeline {
-    pub fn new(shape: Vec<usize>, stride: usize) -> Pipeline {
+    pub fn new() -> Pipeline {
         Pipeline {
-            shape,
-            stride,
             in_buf: Default::default(),
             out_buf: Default::default(),
         }
     }
 
     /// Creates the initialized Pipe implicitly
-    pub fn apply_point<T>(self, op: T) -> Pipe<Head<T, ElementMark>>
+    pub fn apply_point<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, ElementMark, LEN>>
     where
-        T: RootOp + ElementOp,
+        T: ElementOp,
     {
         Pipe {
             stages: Head {
                 root_op: op,
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
     }
 
     /// Creates the initialized Pipe implicitly
-    pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, ResampleMark>>
+    pub fn apply_transform<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, ResampleMark, LEN>>
     where
-        T: RootOp + TransformOp,
+        T: TransformOp,
     {
         Pipe {
             stages: Head {
                 root_op: op,
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
@@ -124,8 +111,6 @@ where
             in_buf: Some(vec![0.0; buf_size]),
             out_buf: Some(vec![0.0; buf_size]),
             stages: self.stages,
-            stride: self.stride,
-            shape: self.shape,
         }
     }
 
@@ -151,15 +136,15 @@ impl<T: Stage> PipeExec<T> {
 
         let exec = &self
             .stages
-            .execute(input, in_buf, out_buf, self.shape.as_slice(), self.stride);
+            .execute(input, in_buf, out_buf);
         output[..exec.len()].copy_from_slice(&exec);
     }
 }
 
-impl<T: RootOp + ElementOp> Pipe<Head<T, ElementMark>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Head<FusedPoint<T, U, ElementElement>, ElementMark>>
+impl<T: ElementOp, const LEN: usize> Pipe<Head<T, ElementMark, LEN>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, ElementMark, LEN>>
     where
-        U: ElementOp + RootOp,
+        U: ElementOp,
     {
         let prev_head = self.stages;
 
@@ -168,17 +153,14 @@ impl<T: RootOp + ElementOp> Pipe<Head<T, ElementMark>> {
                 marker: prev_head.marker,
                 root_op: prev_head.root_op._apply_point(op),
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
     }
 
-    // FOR NOW
-    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, ElementMark>, ResampleMark>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, ElementMark, LEN>, ResampleMark>>
     where
-        U: TransformOp + PipeOp,
+        U: TransformOp,
     {
         // DEBUG
         let stages = self.stages;
@@ -189,23 +171,19 @@ impl<T: RootOp + ElementOp> Pipe<Head<T, ElementMark>> {
                 curr_op: op,
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
     }
-    // Everything that can fused is fused, otherwise a new stage is generated
-    // fn apply_resample()
 }
 
-impl<T: RootOp + TransformOp> Pipe<Head<T, ResampleMark>> {
+impl<T: TransformOp, const LEN: usize> Pipe<Head<T, ResampleMark, LEN>> {
     pub fn apply_point<U>(
         self,
         op: U,
-    ) -> Pipe<Head<FusedPoint<T, U, TransformElement>, ResampleMark>>
+    ) -> Pipe<Head<Fused<T, U, TransformElement>, ResampleMark, LEN>>
     where
-        U: ElementOp + RootOp,
+        U: ElementOp,
     {
         let prev_head = self.stages;
 
@@ -214,8 +192,6 @@ impl<T: RootOp + TransformOp> Pipe<Head<T, ResampleMark>> {
                 marker: prev_head.marker,
                 root_op: prev_head.root_op._apply_point(op),
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
@@ -225,9 +201,9 @@ impl<T: RootOp + TransformOp> Pipe<Head<T, ResampleMark>> {
     pub fn apply_transform<U>(
         self,
         op: U,
-    ) -> Pipe<Link<U, Head<T, ResampleMark>, ResampleMark>>
+    ) -> Pipe<Link<U, Head<T, ResampleMark, LEN>, ResampleMark>>
     where
-        U: TransformOp + RootOp + PipeOp,
+        U: TransformOp,
     {
         // DEBUG
         let prev_head = self.stages;
@@ -238,22 +214,17 @@ impl<T: RootOp + TransformOp> Pipe<Head<T, ResampleMark>> {
                 prev_stage: prev_head,
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
     }
-    // Everything that can fused is fused, otherwise a new stage is generated
-    // fn apply_resample()
 }
 
-impl<T: PipeOp + ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Link<FusedPoint<T, U>, S, ElementMark>>
+impl<T: ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, ElementMark>>
     where
-        U: ElementOp + PipeOp,
+        U: ElementOp,
     {
-        // DEBUG
         let stages = self.stages;
 
         Pipe {
@@ -262,19 +233,15 @@ impl<T: PipeOp + ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
                 curr_op: stages.curr_op._apply_point(op),
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
     }
 
-    // TODO: later -> interchangeable
     pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Link<T, S, ElementMark>, ResampleMark>>
     where
-        U: TransformOp + PipeOp,
+        U: TransformOp,
     {
-        // DEBUG
         let stages = self.stages;
 
         Pipe {
@@ -283,21 +250,19 @@ impl<T: PipeOp + ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
                 curr_op: op,
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
     }
 }
 
-impl<T: PipeOp + TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
+impl<T: TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
     pub fn apply_point<U>(
         self,
         op: U,
-    ) -> Pipe<Link<FusedPoint<T, U, TransformElement>, S, ResampleMark>>
+    ) -> Pipe<Link<Fused<T, U, TransformElement>, S, ResampleMark>>
     where
-        U: ElementOp + PipeOp,
+        U: ElementOp,
     {
         // DEBUG
         let stages = self.stages;
@@ -308,8 +273,6 @@ impl<T: PipeOp + TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
                 curr_op: stages.curr_op._apply_point(op),
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }
@@ -318,7 +281,7 @@ impl<T: PipeOp + TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
     // TODO: should merge
     pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Link<T, S, ResampleMark>, ResampleMark>>
     where
-        U: TransformOp + PipeOp,
+        U: TransformOp,
     {
         // DEBUG
         let stages = self.stages;
@@ -329,8 +292,6 @@ impl<T: PipeOp + TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
                 curr_op: op,
                 marker: PhantomData {},
             },
-            stride: self.stride,
-            shape: self.shape,
             in_buf: self.in_buf,
             out_buf: self.out_buf,
         }

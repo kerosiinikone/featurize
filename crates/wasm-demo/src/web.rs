@@ -51,33 +51,23 @@ impl Mnist {
     /// * [number-slices](https://rustwasm.github.io/wasm-bindgen/reference/types/number-slices.html)
     /// * [boxed-number-slices](https://rustwasm.github.io/wasm-bindgen/reference/types/boxed-number-slices.html)
     ///
-    pub async fn inference(
-        &mut self,
-        rgba_data: &[f32],
-    ) -> Result<js_sys::Object, String> {
+    pub async fn inference(&mut self, rgba_data: &[f32]) -> Result<js_sys::Object, String> {
         if self.model.is_none() {
             self.model = Some(build_and_load_model().await);
         }
 
         let mut preprocessed_data = vec![0.0; 28 * 28];
-        let mut preprocessor = Pipeline::new(vec![300, 300, 4], 4)
-            .apply_transform(Scale {
-                out_shape: vec![28, 28, 4],
-                in_channels: None,
-            })
-            .apply_transform(Grayscale {
-                in_channels: 4,
-                out_size: 28 * 28,
+        let scale = Scale::<300, 300, 1, 28, 28, 1>;
+        // vec![300, 300, 4], 4
+        let mut preprocessor = Pipeline::new()
+            .apply_transform::<Grayscale<300, 300, 4>, 360_000>(Grayscale::<300, 300, 4> {
                 invert: true,
             })
-            .apply_point(Div {
-                factor: 255.0,
-                size: 28 * 28,
-            })
+            .apply_transform(scale)
+            .apply_point(Div { factor: 255.0 })
             .apply_point(Normalize {
                 mean: 0.1307,
                 std: 0.3081,
-                size: 28 * 28,
             })
             .build();
 
