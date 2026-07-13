@@ -1,6 +1,5 @@
 use alloc::string::String;
 use alloc::vec;
-use alloc::vec::Vec;
 use featurize_core::traits::{Div, Grayscale, Normalize, Scale};
 use js_sys::*;
 

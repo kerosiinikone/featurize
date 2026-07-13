@@ -35,33 +35,65 @@ where
     pub marker: PhantomData<Mark>,
 }
 
-/// Normalize, Grayscale
 /// Point-wise operations that work on individual elements
 pub trait ElementOp {
     fn compute(&self, data: f32) -> f32;
-    fn _setup(&self) {}
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U>
+    
+    fn setup(&self) {}
+
+    #[inline(always)]
+    fn fuse_element<U>(self, op: U) -> Fused<Self, U, ElementElement>
     where
         Self: Sized,
-        U: ElementOp;
+        U: ElementOp,
+    {
+        Fused {
+            prev_op: self,
+            curr_op: op,
+            marker: PhantomData {},
+        }
+    }
+
+    #[inline(always)]
+    fn fuse_after_transform<U>(self, op: U) -> Fused<U, Self, TransformElement>
+    where
+        Self: Sized,
+        U: TransformOp,
+    {
+        Fused {
+            prev_op: op,
+            curr_op: self,
+            marker: PhantomData {},
+        }
+    }
 }
 
-/// Scale and other spatial transformation operations
-/// Maps from output index to computed value by sampling from input
+/// Spatial transformation operations that map from output index to computed value by sampling from input
 pub trait TransformOp {
     /// Compute output value at given output index by sampling from input data
     fn compute(&self, data: &[f32], out_index: usize) -> f32;
-    fn buf_size(&self) -> usize;
+
+    /// Execute the transformation using chunk-based iteration (for stride operations)
+    /// or index-based iteration (for non-linear operations)
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32];
+
+    fn buffer_size(&self) -> usize;
     fn output_shape(&self) -> usize;
-    fn _setup(&self) {}
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U, TransformElement>
+    
+    fn setup(&self) {}
+
+    #[inline(always)]
+    fn fuse_element<U>(self, op: U) -> Fused<Self, U, TransformElement>
     where
         Self: Sized,
-        U: ElementOp;
-    fn _apply_resample<U>(self, op: U) -> Fused<Self, U, TransformTransform>
-    where
-        Self: Sized,
-        U: TransformOp;
+        U: ElementOp,
+    {
+        Fused {
+            prev_op: self,
+            curr_op: op,
+            marker: PhantomData {},
+        }
+    }
 }
 
 /// Markers for assuring typestate
@@ -71,6 +103,7 @@ pub struct TransformElement;
 
 /// Generic over the previous operation and current
 /// Allows for fusing the operations
+/// In the future -> 1:1 operations can be fused if they are of TransformOp type
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct Fused<T, S, FusedState = ElementElement> {
@@ -80,78 +113,23 @@ pub struct Fused<T, S, FusedState = ElementElement> {
     marker: PhantomData<FusedState>,
 }
 
-impl<T: ElementOp, S: ElementOp> Fused<T, S, ElementElement> {
+impl<T: ElementOp, S: ElementOp> ElementOp for Fused<T, S, ElementElement> {
     #[inline(always)]
-    fn _compute_el(&self, data: f32) -> f32 {
+    fn compute(&self, data: f32) -> f32 {
         let prev = self.prev_op.compute(data);
         self.curr_op.compute(prev)
     }
 }
 
-impl<T: TransformOp, S: ElementOp> Fused<T, S, TransformElement> {
-    #[inline(always)]
-    fn _compute_res_el(&self, data: &[f32], index: usize) -> f32 {
-        let prev = self.prev_op.compute(data, index);
-        self.curr_op.compute(prev)
-    }
-}
-
-impl<T: ElementOp, S: ElementOp> ElementOp for Fused<T, S, ElementElement> {
-    #[inline(always)]
-    fn compute(&self, data: f32) -> f32 {
-        self._compute_el(data)
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-}
-
-// TODO: later -> Resample + Element <-> Element + Resample (commutativity)
-
 impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
     #[inline(always)]
-    fn _apply_resample<U>(self, op: U) -> Fused<Self, U, TransformTransform>
-    where
-        Self: Sized,
-        U: TransformOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U, TransformElement>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-
-    #[inline(always)]
     fn compute(&self, data: &[f32], index: usize) -> f32 {
-        self._compute_el(data[index])
+        let prev = self.prev_op.compute(data[index]);
+        self.curr_op.compute(prev)
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
+    fn buffer_size(&self) -> usize {
         0
     }
 
@@ -159,116 +137,65 @@ impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
     fn output_shape(&self) -> usize {
         0
     }
+
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
+        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
+            *out_pixel = TransformOp::compute(self, input, out_index);
+        }
+        out
+    }
 }
 
 impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement> {
     #[inline(always)]
-    fn _apply_resample<U>(self, op: U) -> Fused<Self, U, TransformTransform>
-    where
-        Self: Sized,
-        U: TransformOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U, TransformElement>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-
-    #[inline(always)]
     fn compute(&self, data: &[f32], index: usize) -> f32 {
-        self._compute_res_el(data, index)
+        let prev = self.prev_op.compute(data, index);
+        self.curr_op.compute(prev)
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
-        self.prev_op.buf_size()
+    fn buffer_size(&self) -> usize {
+        self.prev_op.buffer_size()
     }
 
     #[inline(always)]
     fn output_shape(&self) -> usize {
         self.prev_op.output_shape()
     }
+
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
+        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
+            *out_pixel = TransformOp::compute(self, input, out_index);
+        }
+        out
+    }
 }
 
-/// Normalize operation (point)
-/// Norm by std and mean
+/// Normalize operation (point-wise)
+/// Normalizes by standard deviation and mean
 #[derive(Debug, Clone, Default)]
 pub struct Normalize {
     pub mean: f32,
     pub std: f32,
 }
 
-impl Normalize {
+impl ElementOp for Normalize {
     #[inline(always)]
-    fn _compute(&self, data: f32) -> f32 {
+    fn compute(&self, data: f32) -> f32 {
         (data - self.mean) / self.std
     }
 }
 
-impl ElementOp for Normalize {
-    #[inline(always)]
-    fn compute(&self, data: f32) -> f32 {
-        self._compute(data)
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-}
-
-/// Div operation (point)
+/// Division operation (point-wise)
 #[derive(Debug, Clone, Default)]
 pub struct Div {
     pub factor: f32,
 }
 
-impl Div {
-    #[inline(always)]
-    fn _compute(&self, data: f32) -> f32 {
-        data / self.factor
-    }
-}
-
 impl ElementOp for Div {
     #[inline(always)]
     fn compute(&self, data: f32) -> f32 {
-        self._compute(data)
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
+        data / self.factor
     }
 }
 
@@ -280,9 +207,41 @@ pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize> {
     pub invert: bool,
 }
 
+impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Grayscale<IN_W, IN_H, IN_C> {
+    #[inline(always)]
+    fn apply_inversion(&self, val: f32) -> f32 {
+        if self.invert { 255.0 - val } else { val }
+    }
+
+    #[inline(always)]
+    fn compute_luminance(&self, channels: &[f32]) -> f32 {
+        match IN_C {
+            3 | 4 if channels.len() >= 3 => {
+                let r = self.apply_inversion(channels[0]);
+                let g = self.apply_inversion(channels[1]);
+                let b = self.apply_inversion(channels[2]);
+                0.299 * r + 0.587 * g + 0.114 * b
+            }
+            1 => self.apply_inversion(channels[0]),
+            _ => {
+                let sum: f32 = channels.iter().map(|&v| self.apply_inversion(v)).sum();
+                sum / channels.len() as f32
+            }
+        }
+    }
+}
+
 impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
     for Grayscale<IN_W, IN_H, IN_C>
 {
+    #[inline(always)]
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
+        for (out_pixel, in_chunk) in out[0..n].iter_mut().zip(input.chunks_exact(IN_C)) {
+            *out_pixel = self.compute_luminance(in_chunk);
+        }
+        out
+    }
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let base_idx = out_index * IN_C;
@@ -290,67 +249,19 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
         if base_idx >= data.len() {
             return 0.0;
         }
-        let maybe_invert = |val: f32| -> f32 { if self.invert { 255.0 - val } else { val } };
 
-        if IN_C == 3 && base_idx + 2 < data.len() {
-            let r = maybe_invert(data[base_idx]);
-            let g = maybe_invert(data[base_idx + 1]);
-            let b = maybe_invert(data[base_idx + 2]);
-            0.299 * r + 0.587 * g + 0.114 * b
-        } else if IN_C == 4 && base_idx + 2 < data.len() {
-            let r = maybe_invert(data[base_idx]);
-            let g = maybe_invert(data[base_idx + 1]);
-            let b = maybe_invert(data[base_idx + 2]);
-            0.299 * r + 0.587 * g + 0.114 * b
-        } else if IN_C == 1 {
-            maybe_invert(data[base_idx])
-        } else {
-            let mut sum = 0.0;
-            let mut count = 0;
-            for i in 0..IN_C {
-                if base_idx + i < data.len() {
-                    sum += maybe_invert(data[base_idx + i]);
-                    count += 1;
-                }
-            }
-            if count > 0 { sum / count as f32 } else { 0.0 }
-        }
+        let end_idx = (base_idx + IN_C).min(data.len());
+        self.compute_luminance(&data[base_idx..end_idx])
     }
 
     #[inline(always)]
     fn output_shape(&self) -> usize {
-        self.buf_size()
+        self.buffer_size()
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
-        IN_W * IN_H * 1
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U, TransformElement>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-
-    #[inline(always)]
-    fn _apply_resample<U>(self, op: U) -> Fused<Self, U, TransformTransform>
-    where
-        Self: Sized,
-        U: TransformOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
+    fn buffer_size(&self) -> usize {
+        IN_W * IN_H
     }
 }
 
@@ -373,6 +284,14 @@ impl<
     const OUT_C: usize,
 > TransformOp for Scale<IN_W, IN_H, IN_C, OUT_W, OUT_H, OUT_C>
 {
+    #[inline(always)]
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
+        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
+            *out_pixel = self.compute(input, out_index);
+        }
+        out
+    }
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let in_size: usize = IN_W * IN_H * IN_C;
@@ -403,38 +322,12 @@ impl<
 
     #[inline(always)]
     fn output_shape(&self) -> usize {
-        self.buf_size()
+        self.buffer_size()
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
+    fn buffer_size(&self) -> usize {
         OUT_W * OUT_H * OUT_C
-    }
-
-    #[inline(always)]
-    fn _apply_point<U>(self, op: U) -> Fused<Self, U, TransformElement>
-    where
-        Self: Sized,
-        U: ElementOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
-    }
-
-    #[inline(always)]
-    fn _apply_resample<U>(self, op: U) -> Fused<Self, U, TransformTransform>
-    where
-        Self: Sized,
-        U: TransformOp,
-    {
-        Fused {
-            prev_op: self,
-            curr_op: op,
-            marker: PhantomData {},
-        }
     }
 }
 
@@ -446,13 +339,12 @@ impl<T: ElementOp, const LEN: usize> Stage for Head<T, ElementMark, LEN> {
         _in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
     ) -> &'o [f32] {
-        self.root_op._setup();
+        self.root_op.setup();
 
-        let out = &mut out_buf[0..LEN];
-        for i in 0..LEN {
-            out[i] = self.root_op.compute(data[i]);
+        for (out_pixel, in_pixel) in out_buf[0..LEN].iter_mut().zip(data.iter()) {
+            *out_pixel = self.root_op.compute(*in_pixel);
         }
-        out
+        out_buf
     }
 
     #[inline(always)]
@@ -474,20 +366,16 @@ impl<T: TransformOp, const LEN: usize> Stage for Head<T, ResampleMark, LEN> {
         _in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
     ) -> &'o [f32] {
-        self.root_op._setup();
-
-        let n = self.root_op.buf_size();
+        self.root_op.setup();
+        let n = self.root_op.buffer_size();
         let out = &mut out_buf[0..n];
 
-        for i in 0..n {
-            out[i] = self.root_op.compute(data, i);
-        }
-        out
+        self.root_op.execute(out, data, n)
     }
 
     #[inline(always)]
     fn buf_size(&self) -> usize {
-        self.root_op.buf_size()
+        self.root_op.buffer_size()
     }
 
     #[inline(always)]
@@ -505,21 +393,16 @@ impl<T: TransformOp, S: Stage> Stage for Link<T, S, ResampleMark> {
         out_buf: &'o mut [f32],
     ) -> &'o [f32] {
         let prev_out = self.prev_stage.execute(data, out_buf, in_buf);
-
-        self.curr_op._setup();
-
-        let n = self.curr_op.buf_size();
+        self.curr_op.setup();
+        let n = self.curr_op.buffer_size();
         let out = &mut out_buf[0..n];
 
-        for i in 0..n {
-            out[i] = self.curr_op.compute(prev_out, i);
-        }
-        out
+        self.curr_op.execute(out, prev_out, n)
     }
 
     #[inline(always)]
     fn buf_size(&self) -> usize {
-        cmp::max(self.prev_stage.buf_size(), self.curr_op.buf_size())
+        cmp::max(self.prev_stage.buf_size(), self.curr_op.buffer_size())
     }
 
     #[inline(always)]
@@ -537,22 +420,21 @@ impl<T: ElementOp, S: Stage> Stage for Link<T, S, ElementMark> {
         out_buf: &'o mut [f32],
     ) -> &'o [f32] {
         let prev_out = self.prev_stage.execute(data, out_buf, in_buf);
-
-        self.curr_op._setup();
-
+        self.curr_op.setup();
         let n = self.buf_size();
-        let out = &mut out_buf[0..n];
 
-        for i in 0..n {
-            out[i] = self.curr_op.compute(prev_out[i]);
+        for (out_pixel, in_pixel) in out_buf[0..n].iter_mut().zip(prev_out.iter()) {
+            *out_pixel = self.curr_op.compute(*in_pixel);
         }
-        out
+        out_buf
     }
 
+    #[inline(always)]
     fn buf_size(&self) -> usize {
         self.prev_stage.buf_size()
     }
 
+    #[inline(always)]
     fn output_shape(&self) -> usize {
         self.prev_stage.output_shape()
     }
