@@ -137,6 +137,10 @@ impl<T: Stage> PipeExec<T> {
         let exec = &self.stages.execute(input, in_buf, out_buf);
         output[..exec.len()].copy_from_slice(&exec);
     }
+
+    pub fn output_shape(&self) -> usize {
+        self.stages.output_shape()
+    }
 }
 
 impl<T: ElementOp, const LEN: usize> Pipe<Head<T, ElementMark, LEN>> {

@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 web-sys = "0.3.103"
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }

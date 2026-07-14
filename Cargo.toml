@@ -1,8 +1,19 @@
 [workspace]
+resolver = "2"
 members = [
     "crates/core",
     "crates/wasm-demo",
+    "crates/whisper-demo",
 ]
+
+[workspace.dependencies]
+rand = "0.8.7"
+rand_core = "0.6.4"
+rand_chacha = "0.3.1"
+rand_distr = "0.4.3"
+
+[patch.crates-io]
+half = { git = "https://github.com/starkat99/half-rs.git", branch = "main" }
 
 [profile.release]
 opt-level = 3

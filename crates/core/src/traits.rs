@@ -38,7 +38,7 @@ where
 /// Point-wise operations that work on individual elements
 pub trait ElementOp {
     fn compute(&self, data: f32) -> f32;
-    
+
     fn setup(&self) {}
 
     #[inline(always)]
@@ -71,7 +71,10 @@ pub trait ElementOp {
 /// Spatial transformation operations that map from output index to computed value by sampling from input
 pub trait TransformOp {
     /// Compute output value at given output index by sampling from input data
-    fn compute(&self, data: &[f32], out_index: usize) -> f32;
+    // TODO: Universal method
+    fn compute(&self, _: &[f32], __: usize) -> f32 {
+        0f32
+    }
 
     /// Execute the transformation using chunk-based iteration (for stride operations)
     /// or index-based iteration (for non-linear operations)
@@ -79,7 +82,7 @@ pub trait TransformOp {
 
     fn buffer_size(&self) -> usize;
     fn output_shape(&self) -> usize;
-    
+
     fn setup(&self) {}
 
     #[inline(always)]
@@ -93,6 +96,17 @@ pub trait TransformOp {
             curr_op: op,
             marker: PhantomData {},
         }
+    }
+
+    // TODO: Implementable through single operations types (1:1)
+    #[inline(always)]
+    #[allow(dead_code)]
+    fn fuse_transform<U>(self, _: U) -> Fused<U, Self, TransformTransform>
+    where
+        Self: Sized,
+        U: TransformOp,
+    {
+        todo!()
     }
 }
 
@@ -262,6 +276,32 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
     #[inline(always)]
     fn buffer_size(&self) -> usize {
         IN_W * IN_H
+    }
+}
+
+// Whisper demo
+#[derive(Debug, Clone, Copy)]
+pub struct Truncate<const NEW_LEN: usize>;
+
+impl<const NEW_LEN: usize> TransformOp for Truncate<NEW_LEN> {
+    #[inline(always)]
+    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+        data[out_index]
+    }
+
+    #[inline(always)]
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], _: &'i [f32], __: usize) -> &'o mut [f32] {
+        out
+    }
+
+    #[inline(always)]
+    fn buffer_size(&self) -> usize {
+        NEW_LEN
+    }
+
+    #[inline(always)]
+    fn output_shape(&self) -> usize {
+        NEW_LEN
     }
 }
 
