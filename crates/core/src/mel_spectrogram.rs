@@ -2,6 +2,9 @@ use crate::traits::TransformOp;
 use alloc::vec;
 use alloc::vec::Vec;
 
+#[allow(unused_imports)]
+use num_traits::Float as _;
+
 pub trait Float: num_traits::Float + num_traits::FloatConst + num_traits::NumAssign {}
 
 impl Float for f32 {}
@@ -154,13 +157,19 @@ pub struct LogMelSpectrogram<const N_FFT: usize, const HOP_LENGTH: usize, const 
     pub speed_up: bool,
     pub pad_chunk_length: usize,
     hann_window: Vec<f32>,
+    // TODO: static size at comptime -> const generic
     output_len: usize,
 }
 
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
     LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {
-    pub fn new(filters: Vec<f32>, speed_up: bool, pad_chunk_length: usize, input_len: usize) -> Self {
+    pub fn new(
+        filters: Vec<f32>,
+        speed_up: bool,
+        pad_chunk_length: usize,
+        input_len: usize,
+    ) -> Self {
         let half = 0.5f32;
         let one = 1.0f32;
         let two_pi = core::f32::consts::PI + core::f32::consts::PI;
@@ -229,7 +238,7 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
             .copied()
             .unwrap_or(zero)
             - 8.0;
-        
+
         for m in mel.iter_mut() {
             let v = f32::max(*m, mmax);
             *m = v / 4.0 + 1.0;
@@ -242,6 +251,7 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformOp
     for LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {
+    #[inline(always)]
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], _n: usize) -> &'o mut [f32] {
         let mel = self.compute_mel_spectrogram(input);
         let copy_len = mel.len().min(out.len());

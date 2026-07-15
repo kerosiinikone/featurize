@@ -2,7 +2,9 @@
 
 extern crate alloc;
 
+pub mod image;
 pub mod mel_spectrogram;
+pub mod ops;
 pub mod pipeline;
 pub mod prelude;
 pub mod traits;

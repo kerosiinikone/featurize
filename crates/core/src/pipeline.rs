@@ -1,20 +1,16 @@
 use core::marker::PhantomData;
 
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec};
 
 use crate::traits::{
-    ElementElement, ElementMark, ElementOp, Fused, Head, Link, ResampleMark, Stage,
-    TransformElement, TransformOp,
+    EMark, ElementElement, ElementOp, Fused, Head, Link, Stage, TMark, TransformElement,
+    TransformOp,
 };
 
 /// Initializer
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
-pub struct Pipeline {
-    in_buf: Option<Vec<f32>>,
-    out_buf: Option<Vec<f32>>,
-}
+pub struct Pipeline;
 
 /// Wrapper for the pipeline stages
 ///
@@ -31,10 +27,6 @@ where
     // Accessing the underlying T -> helper methods
     stages: T,
     // Options
-    // Input data parameters
-    // These are allocated only at the build stage
-    in_buf: Option<Vec<f32>>,
-    out_buf: Option<Vec<f32>>,
 }
 
 #[allow(dead_code)]
@@ -50,23 +42,19 @@ where
     // Options
     // Input data parameters
     // These are allocated only at the build stage
-    // TODO: not an option
-    in_buf: Option<Vec<f32>>,
-    out_buf: Option<Vec<f32>>,
+    in_buf: Box<[f32]>,
+    out_buf: Box<[f32]>,
     // BACKEND INTEGRATION THROUGH EXT TRAIT (not in core)
 }
 
 #[allow(dead_code)]
 impl Pipeline {
     pub fn new() -> Pipeline {
-        Pipeline {
-            in_buf: Default::default(),
-            out_buf: Default::default(),
-        }
+        Pipeline {}
     }
 
     /// Creates the initialized pipe implicitly
-    pub fn apply_point<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, ElementMark, LEN>>
+    pub fn apply_point<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, EMark, LEN>>
     where
         T: ElementOp,
     {
@@ -75,13 +63,11 @@ impl Pipeline {
                 root_op: op,
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 
     /// Creates the initialized pipe implicitly
-    pub fn apply_transform<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, ResampleMark, LEN>>
+    pub fn apply_transform<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, TMark, LEN>>
     where
         T: TransformOp,
     {
@@ -90,8 +76,6 @@ impl Pipeline {
                 root_op: op,
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 }
@@ -101,8 +85,6 @@ impl<T> Pipe<T>
 where
     T: Stage,
 {
-    // Build the arenas based on buf_size of its operations and stages
-    // return type of builder should be PipelineExec or sum
     pub fn build(self) -> PipeExec<T>
     where
         T: Stage,
@@ -110,8 +92,8 @@ where
         let buf_size = self.stages.buf_size();
 
         PipeExec {
-            in_buf: Some(vec![0.0; buf_size]),
-            out_buf: Some(vec![0.0; buf_size]),
+            in_buf: vec![0f32; buf_size].into_boxed_slice(),
+            out_buf: vec![0f32; buf_size].into_boxed_slice(),
             stages: self.stages,
         }
     }
@@ -122,17 +104,8 @@ impl<T: Stage> PipeExec<T> {
     where
         T: Stage,
     {
-        let out_buf = if let Some(buf) = &mut self.out_buf {
-            buf.as_mut_slice()
-        } else {
-            panic!("empty buffer");
-        };
-
-        let in_buf = if let Some(buf) = &mut self.in_buf {
-            buf.as_mut_slice()
-        } else {
-            panic!("empty buffer");
-        };
+        let out_buf = &mut self.out_buf;
+        let in_buf = &mut self.in_buf;
 
         let exec = &self.stages.execute(input, in_buf, out_buf);
         output[..exec.len()].copy_from_slice(&exec);
@@ -143,8 +116,8 @@ impl<T: Stage> PipeExec<T> {
     }
 }
 
-impl<T: ElementOp, const LEN: usize> Pipe<Head<T, ElementMark, LEN>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, ElementMark, LEN>>
+impl<T: ElementOp, const LEN: usize> Pipe<Head<T, EMark, LEN>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, EMark, LEN>>
     where
         U: ElementOp,
     {
@@ -155,15 +128,10 @@ impl<T: ElementOp, const LEN: usize> Pipe<Head<T, ElementMark, LEN>> {
                 marker: prev_head.marker,
                 root_op: prev_head.root_op.fuse_element(op),
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 
-    pub fn apply_transform<U>(
-        self,
-        op: U,
-    ) -> Pipe<Head<Fused<U, T, TransformElement>, ResampleMark, LEN>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Head<Fused<U, T, TransformElement>, TMark, LEN>>
     where
         U: TransformOp,
     {
@@ -171,20 +139,15 @@ impl<T: ElementOp, const LEN: usize> Pipe<Head<T, ElementMark, LEN>> {
 
         Pipe {
             stages: Head {
-                root_op: prev_head.root_op.fuse_after_transform(op),
+                root_op: prev_head.root_op.fuse_transform(op),
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 }
 
-impl<T: TransformOp, const LEN: usize> Pipe<Head<T, ResampleMark, LEN>> {
-    pub fn apply_point<U>(
-        self,
-        op: U,
-    ) -> Pipe<Head<Fused<T, U, TransformElement>, ResampleMark, LEN>>
+impl<T: TransformOp, const LEN: usize> Pipe<Head<T, TMark, LEN>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, TransformElement>, TMark, LEN>>
     where
         U: ElementOp,
     {
@@ -195,15 +158,10 @@ impl<T: TransformOp, const LEN: usize> Pipe<Head<T, ResampleMark, LEN>> {
                 marker: prev_head.marker,
                 root_op: prev_head.root_op.fuse_element(op),
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 
-    pub fn apply_transform<U>(
-        self,
-        op: U,
-    ) -> Pipe<Link<U, Head<T, ResampleMark, LEN>, ResampleMark>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, TMark, LEN>, TMark>>
     where
         U: TransformOp,
     {
@@ -215,14 +173,12 @@ impl<T: TransformOp, const LEN: usize> Pipe<Head<T, ResampleMark, LEN>> {
                 prev_stage: prev_head,
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 }
 
-impl<T: ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, ElementMark>>
+impl<T: ElementOp, S: Stage> Pipe<Link<T, S, EMark>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, EMark>>
     where
         U: ElementOp,
     {
@@ -234,15 +190,10 @@ impl<T: ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
                 curr_op: stages.curr_op.fuse_element(op),
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 
-    pub fn apply_transform<U>(
-        self,
-        op: U,
-    ) -> Pipe<Link<Fused<U, T, TransformElement>, S, ResampleMark>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<Fused<U, T, TransformElement>, S, TMark>>
     where
         U: TransformOp,
     {
@@ -251,17 +202,15 @@ impl<T: ElementOp, S: Stage> Pipe<Link<T, S, ElementMark>> {
         Pipe {
             stages: Link {
                 prev_stage: stages.prev_stage,
-                curr_op: stages.curr_op.fuse_after_transform(op),
+                curr_op: stages.curr_op.fuse_transform(op),
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 }
 
-impl<T: TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U, TransformElement>, S, ResampleMark>>
+impl<T: TransformOp, S: Stage> Pipe<Link<T, S, TMark>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U, TransformElement>, S, TMark>>
     where
         U: ElementOp,
     {
@@ -273,12 +222,10 @@ impl<T: TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
                 curr_op: stages.curr_op.fuse_element(op),
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 
-    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Link<T, S, ResampleMark>, ResampleMark>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Link<T, S, TMark>, TMark>>
     where
         U: TransformOp,
     {
@@ -290,8 +237,6 @@ impl<T: TransformOp, S: Stage> Pipe<Link<T, S, ResampleMark>> {
                 curr_op: op,
                 marker: PhantomData {},
             },
-            in_buf: self.in_buf,
-            out_buf: self.out_buf,
         }
     }
 }

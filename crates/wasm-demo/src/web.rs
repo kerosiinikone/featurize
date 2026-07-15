@@ -1,6 +1,7 @@
 use alloc::string::String;
 use alloc::vec;
-use featurize_core::traits::{Div, Grayscale, Normalize, Scale};
+use featurize_core::image::{Grayscale, Scale2D};
+use featurize_core::ops::{Div, Normalize};
 use js_sys::*;
 
 #[cfg(target_family = "wasm")]
@@ -56,7 +57,7 @@ impl Mnist {
         }
 
         let mut preprocessed_data = vec![0.0; 28 * 28];
-        let scale = Scale::<300, 300, 1, 28, 28, 1>;
+        let scale = Scale2D::<300, 300, 1, 28, 28, 1>;
         // vec![300, 300, 4], 4
         let mut preprocessor = Pipeline::new()
             .apply_transform::<Grayscale<300, 300, 4>, 360_000>(Grayscale::<300, 300, 4> {
