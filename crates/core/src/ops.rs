@@ -1,4 +1,4 @@
-use crate::traits::{ElementOp, TransformOp};
+use crate::traits::{ElementOp, False, TransformOp, True, IsTrue};
 
 #[allow(unused_imports)]
 use num_traits::Float as _;
@@ -125,6 +125,17 @@ impl ElementOp for Sqrt {
 pub struct Truncate<const NEW_LEN: usize>;
 
 impl<const NEW_LEN: usize> TransformOp for Truncate<NEW_LEN> {
+    type IndexRemapping = True;
+
+    #[inline(always)]
+    fn map_index(&self, out_index: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
+        // Truncate is identity mapping for valid indices
+        out_index
+    }
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         data[out_index]
@@ -132,7 +143,7 @@ impl<const NEW_LEN: usize> TransformOp for Truncate<NEW_LEN> {
 
     #[inline(always)]
     fn execute<'i, 'o>(&self, out: &'o mut [f32], _: &'i [f32], __: usize) -> &'o mut [f32] {
-        out
+        &mut out[..NEW_LEN]
     }
 
     #[inline(always)]
@@ -151,13 +162,24 @@ impl<const NEW_LEN: usize> TransformOp for Truncate<NEW_LEN> {
 pub struct Transpose<const ROWS: usize, const COLS: usize>;
 
 impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS> {
+    type IndexRemapping = True;
+
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn map_index(&self, out_index: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
+        // Transpose: output[i,j] = input[j,i]
         let out_row = out_index / ROWS;
         let out_col = out_index % ROWS;
-        let in_index = out_col * COLS + out_row;
-        
-        if in_index < data.len() {
+        out_col * COLS + out_row
+    }
+
+    #[inline(always)]
+    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+        let in_index = self.map_index(out_index);
+
+        if in_index < COLS * ROWS && in_index < data.len() {
             data[in_index]
         } else {
             0.0
@@ -188,6 +210,17 @@ impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS>
 pub struct Reshape<const NEW_SHAPE: usize>;
 
 impl<const NEW_SHAPE: usize> TransformOp for Reshape<NEW_SHAPE> {
+    type IndexRemapping = True;
+
+    #[inline(always)]
+    fn map_index(&self, out_index: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
+        // Reshape is identity mapping
+        out_index
+    }
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         if out_index < data.len() {
@@ -221,7 +254,11 @@ pub struct Pad<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> {
     pub pad_value: f32,
 }
 
-impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp for Pad<ORIGINAL_LEN, PADDED_LEN> {
+impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp
+    for Pad<ORIGINAL_LEN, PADDED_LEN>
+{
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         if out_index < ORIGINAL_LEN && out_index < data.len() {
@@ -235,7 +272,7 @@ impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp for Pad<ORI
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
         let copy_len = ORIGINAL_LEN.min(input.len()).min(n);
         out[..copy_len].copy_from_slice(&input[..copy_len]);
-        
+
         for i in copy_len..n {
             out[i] = self.pad_value;
         }
@@ -258,9 +295,20 @@ impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp for Pad<ORI
 pub struct Reverse<const LEN: usize>;
 
 impl<const LEN: usize> TransformOp for Reverse<LEN> {
+    type IndexRemapping = True;
+
+    #[inline(always)]
+    fn map_index(&self, out_index: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
+        // Reverse: output[i] = input[LEN - 1 - i]
+        LEN - 1 - out_index
+    }
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
-        let in_index = LEN - 1 - out_index;
+        let in_index = self.map_index(out_index);
         if in_index < data.len() {
             data[in_index]
         } else {

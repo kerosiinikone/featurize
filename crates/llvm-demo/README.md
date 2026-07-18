@@ -1,1 +1,1 @@
-# LLVM IR Inspection Demo
+# Demo

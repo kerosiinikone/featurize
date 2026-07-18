@@ -1,4 +1,4 @@
-use crate::traits::TransformOp;
+use crate::traits::{False, TransformOp};
 
 /// Grayscale operation (channel reduction)
 /// Converts multi-channel data to single channel using luminance weights for RGB
@@ -35,6 +35,8 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Grayscale<IN_W, IN
 impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
     for Grayscale<IN_W, IN_H, IN_C>
 {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
         for (out_pixel, in_chunk) in out[0..n].iter_mut().zip(input.chunks_exact(IN_C)) {
@@ -87,6 +89,8 @@ impl<
     const OUT_C: usize,
 > TransformOp for Scale2D<IN_W, IN_H, IN_C, OUT_W, OUT_H, OUT_C>
 {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
         for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
@@ -147,6 +151,8 @@ impl<
     const OUT_H: usize,
 > TransformOp for Crop<IN_W, IN_H, IN_C, OUT_W, OUT_H>
 {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let out_c = out_index % IN_C;
@@ -194,6 +200,8 @@ impl<
 pub struct Rotate90<const W: usize, const H: usize, const C: usize>;
 
 impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W, H, C> {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let out_c = out_index % C;
@@ -237,6 +245,8 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
 pub struct FlipHorizontal<const W: usize, const H: usize, const C: usize>;
 
 impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizontal<W, H, C> {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let out_c = out_index % C;
@@ -280,6 +290,8 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
 pub struct FlipVertical<const W: usize, const H: usize, const C: usize>;
 
 impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertical<W, H, C> {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let out_c = out_index % C;

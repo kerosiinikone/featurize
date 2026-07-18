@@ -1,4 +1,4 @@
-use crate::traits::TransformOp;
+use crate::traits::{False, TransformOp};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -251,6 +251,8 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformOp
     for LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], _n: usize) -> &'o mut [f32] {
         let mel = self.compute_mel_spectrogram(input);

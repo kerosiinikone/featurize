@@ -3,8 +3,7 @@ use core::marker::PhantomData;
 use alloc::{boxed::Box, vec};
 
 use crate::traits::{
-    EMark, ElementElement, ElementOp, Fused, Head, Link, Stage, TMark, TransformElement,
-    TransformOp,
+    EMark, ElementElement, ElementOp, Fused, Head, IndexRemappable, IsTrue, Link, Stage, TMark, TransformElement, TransformOp, TransformTransform
 };
 
 /// Initializer
@@ -155,7 +154,7 @@ impl<T: TransformOp, const LEN: usize> Pipe<Head<T, TMark, LEN>> {
 
         Pipe {
             stages: Head {
-                marker: prev_head.marker,
+                marker: PhantomData {},
                 root_op: prev_head.root_op.fuse_element(op),
             },
         }
@@ -172,6 +171,27 @@ impl<T: TransformOp, const LEN: usize> Pipe<Head<T, TMark, LEN>> {
                 curr_op: op,
                 prev_stage: prev_head,
                 marker: PhantomData {},
+            },
+        }
+    }
+}
+
+impl<T, const LEN: usize> Pipe<Head<T, TMark, LEN>>
+where
+    T: TransformOp + IndexRemappable,
+    T::IndexRemapping: IsTrue,
+{
+    pub fn apply_transform_fusable<U>(self, op: U) -> Pipe<Head<Fused<T, U, TransformTransform>, TMark, LEN>>
+    where
+        U: TransformOp,
+        U::IndexRemapping: IsTrue,
+    {
+        let prev_head = self.stages;
+
+        Pipe {
+            stages: Head {
+                marker: PhantomData {},
+                root_op: prev_head.root_op.fuse_transform(op),
             },
         }
     }
@@ -236,6 +256,28 @@ impl<T: TransformOp, S: Stage> Pipe<Link<T, S, TMark>> {
                 prev_stage: stages,
                 curr_op: op,
                 marker: PhantomData {},
+            },
+        }
+    }
+}
+
+impl<T, S: Stage> Pipe<Link<T, S, TMark>>
+where
+    T: TransformOp + IndexRemappable,
+    T::IndexRemapping: IsTrue,
+{
+    pub fn apply_transform_fusable<U>(self, op: U) -> Pipe<Link<Fused<T, U, TransformTransform>, S, TMark>>
+    where
+        U: TransformOp,
+        U::IndexRemapping: IsTrue,
+    {
+        let stages = self.stages;
+
+        Pipe {
+            stages: Link {
+                marker: PhantomData {},
+                curr_op: stages.curr_op.fuse_transform(op),
+                prev_stage: stages.prev_stage
             },
         }
     }

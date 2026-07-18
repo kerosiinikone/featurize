@@ -39,6 +39,7 @@ where
 }
 
 /// Point-wise operations that work on individual elements
+/// COMMUTATIVE
 pub trait ElementOp {
     fn compute(&self, data: f32) -> f32;
 
@@ -71,9 +72,29 @@ pub trait ElementOp {
     }
 }
 
+// Associated types
+pub struct True;
+pub struct False;
+pub trait IsTrue {}
+impl IsTrue for True {}
+
 /// Spatial transformation operations that map from output index to computed value by sampling from input
 pub trait TransformOp {
+    /// Define whether an operation is a pure index remapping (can be fused)
+    type IndexRemapping;
+
+    /// Map output index to input index (for pure index-remapping operations)
+    /// Default implementation is identity mapping
+    #[inline(always)]
+    fn map_index(&self, out_index: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
+        out_index
+    }
+
     /// Compute output value at given output index by sampling from input data
+    // TODO: make use of iterators -> efficiency
     fn compute(&self, _: &[f32], __: usize) -> f32 {
         unimplemented!()
     }
@@ -83,6 +104,7 @@ pub trait TransformOp {
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32];
 
     fn buffer_size(&self) -> usize;
+
     fn output_shape(&self) -> usize;
 
     fn setup(&self) {}
@@ -99,17 +121,34 @@ pub trait TransformOp {
             marker: PhantomData {},
         }
     }
+}
 
-    // TODO: Implementable through single operations types (1:1)
+/// Extension trait for index-remapping TransformOps that can be fused
+pub trait IndexRemappable: TransformOp
+where
+    Self::IndexRemapping: IsTrue,
+{
     #[inline(always)]
-    #[allow(dead_code)]
-    fn fuse_transform<U>(self, _: U) -> Fused<U, Self, TransformTransform>
+    fn fuse_transform<U>(self, op: U) -> Fused<Self, U, TransformTransform>
     where
         Self: Sized,
         U: TransformOp,
+        U::IndexRemapping: IsTrue,
     {
-        unimplemented!()
+        Fused {
+            prev_op: self,
+            curr_op: op,
+            marker: PhantomData {},
+        }
     }
+}
+
+/// Blanket implementation: any TransformOp with IndexRemapping = True is IndexRemappable
+impl<T> IndexRemappable for T
+where
+    T: TransformOp,
+    T::IndexRemapping: IsTrue,
+{
 }
 
 /// Markers for assuring typestate
@@ -138,6 +177,8 @@ impl<T: ElementOp, S: ElementOp> ElementOp for Fused<T, S, ElementElement> {
 }
 
 impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
+    type IndexRemapping = False;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], index: usize) -> f32 {
         let prev = self.prev_op.compute(data[index]);
@@ -163,6 +204,8 @@ impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
 }
 
 impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement> {
+    type IndexRemapping = T::IndexRemapping;
+
     #[inline(always)]
     fn compute(&self, data: &[f32], index: usize) -> f32 {
         let prev = self.prev_op.compute(data, index);
@@ -182,6 +225,51 @@ impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement>
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
         for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
             *out_pixel = TransformOp::compute(self, input, out_index);
+        }
+        out
+    }
+}
+
+impl<T: TransformOp, S: TransformOp> TransformOp for Fused<T, S, TransformTransform>
+where
+    S::IndexRemapping: IsTrue,
+    T::IndexRemapping: IsTrue,
+{
+    type IndexRemapping = True;
+
+    #[inline(always)]
+    fn map_index(&self, out_index: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
+        let intermediate_index = self.curr_op.map_index(out_index);
+        self.prev_op.map_index(intermediate_index)
+    }
+
+    #[inline(always)]
+    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+        let input_index = self.map_index(out_index);
+        if input_index < data.len() {
+            data[input_index]
+        } else {
+            0.0
+        }
+    }
+
+    #[inline(always)]
+    fn buffer_size(&self) -> usize {
+        cmp::max(self.curr_op.buffer_size(), self.prev_op.buffer_size())
+    }
+
+    #[inline(always)]
+    fn output_shape(&self) -> usize {
+        self.curr_op.output_shape()
+    }
+
+    #[inline(always)]
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
+        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
+            *out_pixel = self.compute(input, out_index);
         }
         out
     }
