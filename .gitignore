@@ -7,3 +7,6 @@ Cargo.lock
 # Harness
 .aider*
 
+# Notes
+TODO.md
+

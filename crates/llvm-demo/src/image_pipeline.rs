@@ -20,14 +20,19 @@ fn main() {
     }
 
     let mut pipe = Pipeline::new()
-        .apply_transform::<Scale2D<WIDTH, HEIGHT, CHANNELS, SCALED_WIDTH, SCALED_HEIGHT, CHANNELS>, { WIDTH * HEIGHT * CHANNELS }>(Scale2D)
+        .apply_transform(
+            Scale2D::<WIDTH, HEIGHT, CHANNELS, SCALED_WIDTH, SCALED_HEIGHT, CHANNELS> {},
+        )
         .apply_transform(Grayscale::<SCALED_WIDTH, SCALED_HEIGHT, CHANNELS> { invert: false })
         .apply_point(Div { factor: 255.0 })
         .apply_point(Multiply { factor: 1.2 })
+        // TODO: check for bound errors (buf sizes)
+        .apply_transform(Truncate::<{ SCALED_WIDTH * SCALED_HEIGHT - 2 }>)
+        .apply_transform_fusable(Truncate::<{ SCALED_WIDTH }>)
         .apply_point(Clamp { min: 0.0, max: 1.0 })
-        .build();
+        .build::<{ WIDTH * HEIGHT * CHANNELS }>();
 
-    let output_size = pipe.output_shape();
+    let output_size = pipe.output_len();
     let mut output = vec![0.0f32; output_size];
 
     pipe.execute(&input_data, &mut output);

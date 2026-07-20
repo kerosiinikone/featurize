@@ -2,8 +2,12 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, vec};
 
-use crate::traits::{
-    EMark, ElementElement, ElementOp, Fused, Head, IndexRemappable, IsTrue, Link, Stage, TMark, TransformElement, TransformOp, TransformTransform
+use crate::{
+    errors::{ErrorKind, PipeError},
+    traits::{
+        EMark, ElementElement, ElementOp, Fused, Head, IndexRemappable, IsTrue, Link, Stage, TMark,
+        TransformElement, TransformOp, TransformTransform,
+    },
 };
 
 /// Initializer
@@ -31,7 +35,9 @@ where
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 // Generic over floating-point type?
-pub struct PipeExec<T>
+// IF A FUTURE OPTION IS SPECIFIED, A NON-LENGTH GENERIC STRUCT IS USED INSTEAD (resulting in
+// dynamic boud check)
+pub struct PipeExec<T, const LEN: usize>
 where
     T: Stage,
 {
@@ -53,7 +59,7 @@ impl Pipeline {
     }
 
     /// Creates the initialized pipe implicitly
-    pub fn apply_point<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, EMark, LEN>>
+    pub fn apply_point<T>(self, op: T) -> Pipe<Head<T, EMark>>
     where
         T: ElementOp,
     {
@@ -66,7 +72,7 @@ impl Pipeline {
     }
 
     /// Creates the initialized pipe implicitly
-    pub fn apply_transform<T, const LEN: usize>(self, op: T) -> Pipe<Head<T, TMark, LEN>>
+    pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, TMark>>
     where
         T: TransformOp,
     {
@@ -84,11 +90,12 @@ impl<T> Pipe<T>
 where
     T: Stage,
 {
-    pub fn build(self) -> PipeExec<T>
+    /// The input data dims must be known at the point, unless a (future) option is specified
+    pub fn build<const LEN: usize>(self) -> PipeExec<T, LEN>
     where
         T: Stage,
     {
-        let buf_size = self.stages.buf_size();
+        let buf_size = self.stages.buf_size::<LEN>();
 
         PipeExec {
             in_buf: vec![0f32; buf_size].into_boxed_slice(),
@@ -98,25 +105,39 @@ where
     }
 }
 
-impl<T: Stage> PipeExec<T> {
-    pub fn execute(&mut self, input: &[f32], output: &mut [f32])
+impl<T: Stage, const LEN: usize> PipeExec<T, LEN> {
+    pub fn execute(&mut self, input: &[f32], output_buf: &mut [f32]) -> Result<(), PipeError>
     where
         T: Stage,
     {
+        let output_len = self.output_len();
         let out_buf = &mut self.out_buf;
         let in_buf = &mut self.in_buf;
 
-        let exec = &self.stages.execute(input, in_buf, out_buf);
-        output[..exec.len()].copy_from_slice(&exec);
+        if input.len() != LEN {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
+        if output_buf.len() < output_len {
+            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+        }
+
+        let exec = &self
+            .stages
+            .execute::<LEN>(input, in_buf, out_buf)
+            .expect("Failed");
+        output_buf[..exec.len()].copy_from_slice(&exec);
+
+        Ok(())
     }
 
-    pub fn output_shape(&self) -> usize {
-        self.stages.output_shape()
+    pub fn output_len(&self) -> usize {
+        self.stages.output_len::<LEN>()
     }
 }
 
-impl<T: ElementOp, const LEN: usize> Pipe<Head<T, EMark, LEN>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, EMark, LEN>>
+impl<T: ElementOp> Pipe<Head<T, EMark>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, EMark>>
     where
         U: ElementOp,
     {
@@ -130,7 +151,7 @@ impl<T: ElementOp, const LEN: usize> Pipe<Head<T, EMark, LEN>> {
         }
     }
 
-    pub fn apply_transform<U>(self, op: U) -> Pipe<Head<Fused<U, T, TransformElement>, TMark, LEN>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Head<Fused<U, T, TransformElement>, TMark>>
     where
         U: TransformOp,
     {
@@ -145,8 +166,8 @@ impl<T: ElementOp, const LEN: usize> Pipe<Head<T, EMark, LEN>> {
     }
 }
 
-impl<T: TransformOp, const LEN: usize> Pipe<Head<T, TMark, LEN>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, TransformElement>, TMark, LEN>>
+impl<T: TransformOp> Pipe<Head<T, TMark>> {
+    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, TransformElement>, TMark>>
     where
         U: ElementOp,
     {
@@ -160,7 +181,7 @@ impl<T: TransformOp, const LEN: usize> Pipe<Head<T, TMark, LEN>> {
         }
     }
 
-    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, TMark, LEN>, TMark>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, TMark>, TMark>>
     where
         U: TransformOp,
     {
@@ -176,12 +197,15 @@ impl<T: TransformOp, const LEN: usize> Pipe<Head<T, TMark, LEN>> {
     }
 }
 
-impl<T, const LEN: usize> Pipe<Head<T, TMark, LEN>>
+impl<T> Pipe<Head<T, TMark>>
 where
     T: TransformOp + IndexRemappable,
     T::IndexRemapping: IsTrue,
 {
-    pub fn apply_transform_fusable<U>(self, op: U) -> Pipe<Head<Fused<T, U, TransformTransform>, TMark, LEN>>
+    pub fn apply_transform_fusable<U>(
+        self,
+        op: U,
+    ) -> Pipe<Head<Fused<T, U, TransformTransform>, TMark>>
     where
         U: TransformOp,
         U::IndexRemapping: IsTrue,
@@ -266,7 +290,10 @@ where
     T: TransformOp + IndexRemappable,
     T::IndexRemapping: IsTrue,
 {
-    pub fn apply_transform_fusable<U>(self, op: U) -> Pipe<Link<Fused<T, U, TransformTransform>, S, TMark>>
+    pub fn apply_transform_fusable<U>(
+        self,
+        op: U,
+    ) -> Pipe<Link<Fused<T, U, TransformTransform>, S, TMark>>
     where
         U: TransformOp,
         U::IndexRemapping: IsTrue,
@@ -277,7 +304,7 @@ where
             stages: Link {
                 marker: PhantomData {},
                 curr_op: stages.curr_op.fuse_transform(op),
-                prev_stage: stages.prev_stage
+                prev_stage: stages.prev_stage,
             },
         }
     }

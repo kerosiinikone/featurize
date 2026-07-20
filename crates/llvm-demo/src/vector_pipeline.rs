@@ -11,7 +11,7 @@ fn main() {
     }
 
     let mut pipe = Pipeline::new()
-        .apply_point::<Normalize, VECTOR_LEN>(Normalize {
+        .apply_point(Normalize {
             mean: 50.0,
             std: 25.0,
         })
@@ -19,11 +19,12 @@ fn main() {
         .apply_point(Abs)
         .apply_point(Pow { exponent: 0.5 })
         .apply_point(Multiply { factor: 2.0 })
-        .apply_transform(Truncate::<TRUNCATED_LEN>)
-        .apply_transform_fusable(Reverse::<TRUNCATED_LEN>)
-        .build();
+        // TODO: this is not currently being checked
+        .apply_transform(Truncate::<{ VECTOR_LEN + 1 }>)
+        .apply_transform_fusable(Reverse::<{ VECTOR_LEN + 2 }>)
+        .build::<VECTOR_LEN>();
 
-    let output_size = pipe.output_shape();
+    let output_size = pipe.output_len();
     let mut output = vec![0.0f32; output_size];
 
     pipe.execute(&input_data, &mut output);

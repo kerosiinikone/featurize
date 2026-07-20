@@ -1,4 +1,7 @@
-use crate::traits::{ElementOp, False, TransformOp, True, IsTrue};
+use crate::{
+    errors::PipeError,
+    traits::{ElementOp, False, IsTrue, TransformOp, True},
+};
 
 #[allow(unused_imports)]
 use num_traits::Float as _;
@@ -132,27 +135,35 @@ impl<const NEW_LEN: usize> TransformOp for Truncate<NEW_LEN> {
     where
         Self::IndexRemapping: IsTrue,
     {
-        // Truncate is identity mapping for valid indices
         out_index
     }
 
+    // TODO: check the validity of this
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
-        data[out_index]
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        _input: &'i [f32],
+        _: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() < NEW_LEN {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+        Ok(&mut out[..NEW_LEN])
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], _: &'i [f32], __: usize) -> &'o mut [f32] {
-        &mut out[..NEW_LEN]
+    fn is_valid_input(&self, input_len: usize, actual_len: usize) -> bool {
+        actual_len >= input_len
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn input_len(&self) -> usize {
         NEW_LEN
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         NEW_LEN
     }
 }
@@ -169,7 +180,6 @@ impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS>
     where
         Self::IndexRemapping: IsTrue,
     {
-        // Transpose: output[i,j] = input[j,i]
         let out_row = out_index / ROWS;
         let out_col = out_index % ROWS;
         out_col * COLS + out_row
@@ -178,73 +188,36 @@ impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS>
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let in_index = self.map_index(out_index);
-
-        if in_index < COLS * ROWS && in_index < data.len() {
-            data[in_index]
-        } else {
-            0.0
-        }
+        unsafe { *data.get_unchecked(in_index) }
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != ROWS * COLS {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn input_len(&self) -> usize {
         ROWS * COLS
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         ROWS * COLS
-    }
-}
-
-/// Reshape operation - changes the logical shape without moving data
-#[derive(Debug, Clone, Copy)]
-pub struct Reshape<const NEW_SHAPE: usize>;
-
-impl<const NEW_SHAPE: usize> TransformOp for Reshape<NEW_SHAPE> {
-    type IndexRemapping = True;
-
-    #[inline(always)]
-    fn map_index(&self, out_index: usize) -> usize
-    where
-        Self::IndexRemapping: IsTrue,
-    {
-        // Reshape is identity mapping
-        out_index
-    }
-
-    #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
-        if out_index < data.len() {
-            data[out_index]
-        } else {
-            0.0
-        }
-    }
-
-    #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        let copy_len = n.min(input.len());
-        out[..copy_len].copy_from_slice(&input[..copy_len]);
-        out
-    }
-
-    #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        NEW_SHAPE
-    }
-
-    #[inline(always)]
-    fn output_shape(&self) -> usize {
-        NEW_SHAPE
     }
 }
 
@@ -261,31 +234,49 @@ impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp
 
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
-        if out_index < ORIGINAL_LEN && out_index < data.len() {
-            data[out_index]
+        if out_index < ORIGINAL_LEN {
+            unsafe { *data.get_unchecked(out_index) }
         } else {
             self.pad_value
         }
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        let copy_len = ORIGINAL_LEN.min(input.len()).min(n);
-        out[..copy_len].copy_from_slice(&input[..copy_len]);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != ORIGINAL_LEN {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        let copy_len = ORIGINAL_LEN.min(n);
+        unsafe {
+            core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), copy_len);
+        }
 
         for i in copy_len..n {
-            out[i] = self.pad_value;
+            unsafe {
+                *out.get_unchecked_mut(i) = self.pad_value;
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        PADDED_LEN
+    fn is_valid_input(&self, input_len: usize, actual_len: usize) -> bool {
+        actual_len >= input_len
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn input_len(&self) -> usize {
+        ORIGINAL_LEN
+    }
+
+    #[inline(always)]
+    fn output_len(&self) -> usize {
         PADDED_LEN
     }
 }
@@ -302,35 +293,41 @@ impl<const LEN: usize> TransformOp for Reverse<LEN> {
     where
         Self::IndexRemapping: IsTrue,
     {
-        // Reverse: output[i] = input[LEN - 1 - i]
         LEN - 1 - out_index
     }
 
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let in_index = self.map_index(out_index);
-        if in_index < data.len() {
-            data[in_index]
-        } else {
-            0.0
-        }
+        unsafe { *data.get_unchecked(in_index) }
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != LEN {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn input_len(&self) -> usize {
         LEN
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         LEN
     }
 }

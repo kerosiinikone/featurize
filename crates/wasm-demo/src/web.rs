@@ -1,17 +1,14 @@
 use alloc::string::String;
 use alloc::vec;
-use featurize_core::image::{Grayscale, Scale2D};
-use featurize_core::ops::{Div, Normalize};
 use js_sys::*;
-
-#[cfg(target_family = "wasm")]
-use wasm_bindgen::prelude::*;
 
 use crate::model::Model;
 use crate::state::build_and_load_model;
-
 use burn::tensor::Tensor;
-use featurize_core::pipeline::Pipeline;
+#[cfg(target_family = "wasm")]
+use wasm_bindgen::prelude::*;
+
+use featurize_core::prelude::*;
 
 #[cfg(feature = "flex")]
 use burn::backend::Flex as Backend;
@@ -60,16 +57,14 @@ impl Mnist {
         let scale = Scale2D::<300, 300, 1, 28, 28, 1>;
         // vec![300, 300, 4], 4
         let mut preprocessor = Pipeline::new()
-            .apply_transform::<Grayscale<300, 300, 4>, 360_000>(Grayscale::<300, 300, 4> {
-                invert: true,
-            })
+            .apply_transform(Grayscale::<300, 300, 4> { invert: true })
             .apply_transform(scale)
             .apply_point(Div { factor: 255.0 })
             .apply_point(Normalize {
                 mean: 0.1307,
                 std: 0.3081,
             })
-            .build();
+            .build::<360_000>();
 
         preprocessor.execute(rgba_data, &mut preprocessed_data);
 

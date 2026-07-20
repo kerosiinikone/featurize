@@ -1,19 +1,21 @@
 use core::{cmp, marker::PhantomData};
 
+use crate::errors::{ErrorKind, PipeError};
+
 /// Link<Head<RootOp>, PipeOp>
 /// The pipeline wrapper encloses these 'stages'
-#[allow(dead_code)]
 pub trait Stage {
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, const LEN: usize>(
         &self,
         data: &[f32],
         in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
-    ) -> &'o [f32];
+    ) -> Result<&'o [f32], PipeError>;
 
-    fn buf_size(&self) -> usize;
+    // TODO: redundant?
+    fn buf_size<const LEN: usize>(&self) -> usize;
 
-    fn output_shape(&self) -> usize;
+    fn output_len<const LEN: usize>(&self) -> usize;
 }
 
 /// Stage marks (curr op)
@@ -21,14 +23,12 @@ pub struct TMark;
 pub struct EMark;
 
 /// Generic over the root operation
-#[allow(dead_code)]
-pub struct Head<T, Mark, const LEN: usize> {
+pub struct Head<T, Mark> {
     pub root_op: T,
     pub marker: PhantomData<Mark>,
 }
 
 /// Generic over the previous stage, current operation
-#[allow(dead_code)]
 pub struct Link<T, S, Mark>
 where
     S: Stage,
@@ -39,7 +39,6 @@ where
 }
 
 /// Point-wise operations that work on individual elements
-/// COMMUTATIVE
 pub trait ElementOp {
     fn compute(&self, data: f32) -> f32;
 
@@ -94,18 +93,35 @@ pub trait TransformOp {
     }
 
     /// Compute output value at given output index by sampling from input data
-    // TODO: make use of iterators -> efficiency
-    fn compute(&self, _: &[f32], __: usize) -> f32 {
-        unimplemented!()
+    // TODO: can fail?
+    #[inline(always)]
+    fn compute(&self, data: &[f32], index: usize) -> f32 {
+        unsafe { *data.get_unchecked(index) }
     }
 
     /// Execute the transformation using chunk-based iteration (for stride operations)
     /// or index-based iteration (for non-linear operations)
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32];
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError>;
 
-    fn buffer_size(&self) -> usize;
+    /// Check the validity of passed in data compared to what is known
+    // TODO: better checks
+    #[inline(always)]
+    fn is_valid_input(&self, input_len: usize, output_len: usize) -> bool {
+        input_len == output_len
+    }
 
-    fn output_shape(&self) -> usize;
+    fn input_len(&self) -> usize {
+        0
+    }
+
+    fn output_len(&self) -> usize {
+        0
+    }
 
     fn setup(&self) {}
 
@@ -181,25 +197,22 @@ impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
 
     #[inline(always)]
     fn compute(&self, data: &[f32], index: usize) -> f32 {
-        let prev = self.prev_op.compute(data[index]);
+        let prev = self.prev_op.compute(unsafe { *data.get_unchecked(index) });
         self.curr_op.compute(prev)
     }
 
-    #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        0
-    }
-
-    #[inline(always)]
-    fn output_shape(&self) -> usize {
-        0
-    }
-
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = TransformOp::compute(self, input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = TransformOp::compute(self, input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 }
 
@@ -213,20 +226,32 @@ impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement>
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        self.prev_op.buffer_size()
+    fn input_len(&self) -> usize {
+        self.prev_op.input_len()
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.prev_op.output_shape()
+    fn output_len(&self) -> usize {
+        self.prev_op.output_len()
     }
 
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = TransformOp::compute(self, input, out_index);
+    #[inline(always)]
+    fn is_valid_input(&self, input_len: usize, output_len: usize) -> bool {
+        self.prev_op.is_valid_input(input_len, output_len)
+    }
+
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = TransformOp::compute(self, input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 }
 
@@ -249,137 +274,200 @@ where
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let input_index = self.map_index(out_index);
-        if input_index < data.len() {
-            data[input_index]
-        } else {
-            0.0
+        unsafe { *data.get_unchecked(input_index) }
+    }
+
+    #[inline(always)]
+    fn input_len(&self) -> usize {
+        self.prev_op.input_len()
+    }
+
+    #[inline(always)]
+    fn output_len(&self) -> usize {
+        self.curr_op.output_len()
+    }
+
+    // TODO: FOR NOW -> fix later
+    #[inline(always)]
+    fn is_valid_input(&self, curr_input_len: usize, prev_output_len: usize) -> bool {
+        // let prev_curr_input = match self.curr_op.input_len() {
+        //     0 => {
+        //         return true;
+        //     }
+        //     val => val,
+        // };
+        // let prev_prev_output = match self.prev_op.output_len() {
+        //     0 => prev_curr_input,
+        //     val => val,
+        // };
+        // let prev_is_valid = self
+        //     .prev_op
+        //     .is_valid_input(prev_curr_input, prev_prev_output);
+        //
+        // let curr_input = match curr_input_len {
+        //     0 => {
+        //         return prev_is_valid;
+        //     }
+        //     val => val,
+        // };
+        // let prev_output = match prev_output_len {
+        //     0 => curr_input,
+        //     val => val,
+        // };
+        // // If, say, two Truncated are fused -> both need to be validated
+        // self.curr_op.is_valid_input(curr_input, prev_output) && prev_is_valid
+        true
+    }
+
+    #[inline(always)]
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-    }
-
-    #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        cmp::max(self.curr_op.buffer_size(), self.prev_op.buffer_size())
-    }
-
-    #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.curr_op.output_shape()
-    }
-
-    #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
-        }
-        out
+        Ok(out)
     }
 }
 
-impl<T: ElementOp, const LEN: usize> Stage for Head<T, EMark, LEN> {
+impl<T: ElementOp> Stage for Head<T, EMark> {
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, const LEN: usize>(
         &self,
         data: &[f32],
         _in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
-    ) -> &'o [f32] {
+    ) -> Result<&'o [f32], PipeError> {
         self.root_op.setup();
 
-        for (out_pixel, in_pixel) in out_buf[0..LEN].iter_mut().zip(data.iter()) {
-            *out_pixel = self.root_op.compute(*in_pixel);
+        for i in 0..LEN {
+            unsafe {
+                *out_buf.get_unchecked_mut(i) = self.root_op.compute(*data.get_unchecked(i));
+            }
         }
-        out_buf
+        Ok(out_buf)
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
+    fn buf_size<const LEN: usize>(&self) -> usize {
         LEN
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len<const LEN: usize>(&self) -> usize {
         LEN
     }
 }
 
-impl<T: TransformOp, const LEN: usize> Stage for Head<T, TMark, LEN> {
+impl<T: TransformOp> Stage for Head<T, TMark> {
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, const LEN: usize>(
         &self,
         data: &[f32],
         _in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
-    ) -> &'o [f32] {
+    ) -> Result<&'o [f32], PipeError> {
         self.root_op.setup();
-        let n = self.root_op.buffer_size();
+
+        let input_len = match self.root_op.input_len() {
+            0 => LEN,
+            val => val,
+        };
+        if !self.root_op.is_valid_input(input_len, LEN) {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
+        let n = self.root_op.output_len();
         let out = &mut out_buf[0..n];
 
-        self.root_op.execute(out, data, n)
+        Ok(self.root_op.execute(out, data, n)?)
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
-        self.root_op.buffer_size()
+    fn buf_size<const LEN: usize>(&self) -> usize {
+        self.root_op.output_len()
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.root_op.output_shape()
+    fn output_len<const LEN: usize>(&self) -> usize {
+        self.root_op.output_len()
     }
 }
 
 impl<T: TransformOp, S: Stage> Stage for Link<T, S, TMark> {
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, const LEN: usize>(
         &self,
         data: &[f32],
         in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
-    ) -> &'o [f32] {
-        let prev_out = self.prev_stage.execute(data, out_buf, in_buf);
+    ) -> Result<&'o [f32], PipeError> {
+        let prev_out = self.prev_stage.execute::<LEN>(data, out_buf, in_buf)?;
         self.curr_op.setup();
-        let n = self.curr_op.buffer_size();
+
+        let prev_output_len = match self.prev_stage.output_len::<LEN>() {
+            0 => LEN,
+            val => val,
+        };
+        let curr_input_len = match self.curr_op.input_len() {
+            0 => prev_output_len,
+            val => val,
+        };
+
+        if !self.curr_op.is_valid_input(curr_input_len, prev_output_len) {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
+        let n = self.curr_op.output_len();
         let out = &mut out_buf[0..n];
 
-        self.curr_op.execute(out, prev_out, n)
+        Ok(self.curr_op.execute(out, prev_out, n)?)
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
-        cmp::max(self.prev_stage.buf_size(), self.curr_op.buffer_size())
+    fn buf_size<const LEN: usize>(&self) -> usize {
+        cmp::max(self.prev_stage.buf_size::<LEN>(), self.curr_op.output_len())
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.curr_op.output_shape()
+    fn output_len<const LEN: usize>(&self) -> usize {
+        self.curr_op.output_len()
     }
 }
 
 impl<T: ElementOp, S: Stage> Stage for Link<T, S, EMark> {
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, const LEN: usize>(
         &self,
         data: &[f32],
         in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
-    ) -> &'o [f32] {
-        let prev_out = self.prev_stage.execute(data, out_buf, in_buf);
+    ) -> Result<&'o [f32], PipeError> {
+        let prev_out = self.prev_stage.execute::<LEN>(data, out_buf, in_buf)?;
         self.curr_op.setup();
-        let n = self.buf_size();
 
-        for (out_pixel, in_pixel) in out_buf[0..n].iter_mut().zip(prev_out.iter()) {
-            *out_pixel = self.curr_op.compute(*in_pixel);
+        let n = self.buf_size::<LEN>();
+
+        for i in 0..n {
+            unsafe {
+                *out_buf.get_unchecked_mut(i) = self.curr_op.compute(*prev_out.get_unchecked(i));
+            }
         }
-        out_buf
+        Ok(out_buf)
     }
 
     #[inline(always)]
-    fn buf_size(&self) -> usize {
-        self.prev_stage.buf_size()
+    fn buf_size<const LEN: usize>(&self) -> usize {
+        self.prev_stage.buf_size::<LEN>()
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.prev_stage.output_shape()
+    fn output_len<const LEN: usize>(&self) -> usize {
+        self.prev_stage.output_len::<LEN>()
     }
 }

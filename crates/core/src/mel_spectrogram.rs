@@ -1,4 +1,7 @@
-use crate::traits::{False, TransformOp};
+use crate::{
+    errors::{PipeError},
+    traits::{False, TransformOp},
+};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -254,20 +257,21 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformO
     type IndexRemapping = False;
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], _n: usize) -> &'o mut [f32] {
+    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], _n: usize) -> Result<&'o mut [f32], PipeError> {
         let mel = self.compute_mel_spectrogram(input);
         let copy_len = mel.len().min(out.len());
         out[..copy_len].copy_from_slice(&mel[..copy_len]);
-        out
+        Ok(out)
+    }
+
+    // TODO: no fixed input size req?
+    #[inline(always)]
+    fn input_len(&self) -> usize {
+        0
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        self.output_len
-    }
-
-    #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         self.output_len
     }
 }

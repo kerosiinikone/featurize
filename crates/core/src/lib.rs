@@ -8,6 +8,7 @@ pub mod ops;
 pub mod pipeline;
 pub mod prelude;
 pub mod traits;
+pub mod errors;
 
 #[cfg(test)]
 mod tests {

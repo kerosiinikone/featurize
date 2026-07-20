@@ -1,4 +1,7 @@
-use crate::traits::{False, TransformOp};
+use crate::{
+    errors::PipeError,
+    traits::{False, TransformOp},
+};
 
 /// Grayscale operation (channel reduction)
 /// Converts multi-channel data to single channel using luminance weights for RGB
@@ -38,32 +41,42 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
     type IndexRemapping = False;
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_pixel, in_chunk) in out[0..n].iter_mut().zip(input.chunks_exact(IN_C)) {
-            *out_pixel = self.compute_luminance(in_chunk);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != IN_W * IN_H * IN_C {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for i in 0..n {
+            let base_idx = i * IN_C;
+            unsafe {
+                let in_chunk = core::slice::from_raw_parts(input.as_ptr().add(base_idx), IN_C);
+                *out.get_unchecked_mut(i) = self.compute_luminance(in_chunk);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> f32 {
         let base_idx = out_index * IN_C;
-
-        if base_idx >= data.len() {
-            return 0.0;
+        unsafe {
+            let in_chunk = core::slice::from_raw_parts(data.as_ptr().add(base_idx), IN_C);
+            self.compute_luminance(in_chunk)
         }
-
-        let end_idx = (base_idx + IN_C).min(data.len());
-        self.compute_luminance(&data[base_idx..end_idx])
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.buffer_size()
+    fn input_len(&self) -> usize {
+        IN_W * IN_H * IN_C
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn output_len(&self) -> usize {
         IN_W * IN_H
     }
 }
@@ -92,11 +105,22 @@ impl<
     type IndexRemapping = False;
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != IN_W * IN_H * IN_C {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
@@ -115,16 +139,16 @@ impl<
         let in_y = (out_y * IN_H) / OUT_H;
         let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
 
-        data[in_idx]
+        unsafe { *data.get_unchecked(in_idx) }
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
-        self.buffer_size()
+    fn input_len(&self) -> usize {
+        IN_W * IN_H * IN_C
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn output_len(&self) -> usize {
         OUT_W * OUT_H * OUT_C
     }
 }
@@ -163,34 +187,37 @@ impl<
         let in_x = out_x + self.offset_x;
         let in_y = out_y + self.offset_y;
 
-        if in_x >= IN_W || in_y >= IN_H {
-            return 0.0;
-        }
-
         let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
 
-        if in_idx < data.len() {
-            data[in_idx]
-        } else {
-            0.0
+        unsafe { *data.get_unchecked(in_idx) }
+    }
+
+    #[inline(always)]
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != IN_W * IN_H * IN_C {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
+        Ok(out)
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
-        }
-        out
+    fn input_len(&self) -> usize {
+        IN_W * IN_H * IN_C
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
-        OUT_W * OUT_H * IN_C
-    }
-
-    #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         OUT_W * OUT_H * IN_C
     }
 }
@@ -214,28 +241,35 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
-        if in_idx < data.len() {
-            data[in_idx]
-        } else {
-            0.0
-        }
+        unsafe { *data.get_unchecked(in_idx) }
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != W * H * C {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn input_len(&self) -> usize {
         W * H * C
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         W * H * C
     }
 }
@@ -259,28 +293,35 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
-        if in_idx < data.len() {
-            data[in_idx]
-        } else {
-            0.0
-        }
+        unsafe { *data.get_unchecked(in_idx) }
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != W * H * C {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn input_len(&self) -> usize {
         W * H * C
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         W * H * C
     }
 }
@@ -304,28 +345,35 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertica
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
-        if in_idx < data.len() {
-            data[in_idx]
-        } else {
-            0.0
-        }
+        unsafe { *data.get_unchecked(in_idx) }
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], n: usize) -> &'o mut [f32] {
-        for (out_index, out_pixel) in out[0..n].iter_mut().enumerate() {
-            *out_pixel = self.compute(input, out_index);
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
+        // if input.len() != W * H * C {
+        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        // }
+
+        for out_index in 0..n {
+            unsafe {
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+            }
         }
-        out
+        Ok(out)
     }
 
     #[inline(always)]
-    fn buffer_size(&self) -> usize {
+    fn input_len(&self) -> usize {
         W * H * C
     }
 
     #[inline(always)]
-    fn output_shape(&self) -> usize {
+    fn output_len(&self) -> usize {
         W * H * C
     }
 }
