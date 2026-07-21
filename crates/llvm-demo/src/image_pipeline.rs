@@ -23,14 +23,28 @@ fn main() {
         .apply_transform(
             Scale2D::<WIDTH, HEIGHT, CHANNELS, SCALED_WIDTH, SCALED_HEIGHT, CHANNELS> {},
         )
-        .apply_transform(Grayscale::<SCALED_WIDTH, SCALED_HEIGHT, CHANNELS> { invert: false })
-        .apply_point(Div { factor: 255.0 })
-        .apply_point(Multiply { factor: 1.2 })
-        // TODO: check for bound errors (buf sizes)
-        .apply_transform(Truncate::<{ SCALED_WIDTH * SCALED_HEIGHT - 2 }>)
-        .apply_transform_fusable(Truncate::<{ SCALED_WIDTH }>)
-        .apply_point(Clamp { min: 0.0, max: 1.0 })
-        .build::<{ WIDTH * HEIGHT * CHANNELS }>();
+        .apply_transform(Grayscale::<SCALED_WIDTH, SCALED_HEIGHT, CHANNELS> {
+            invert: false,
+            ..Default::default()
+        })
+        .apply_point(Div {
+            factor: 255.0,
+            ..Default::default()
+        })
+        .apply_point(Multiply {
+            factor: 1.2,
+            ..Default::default()
+        })
+        .apply_transform(
+            Truncate::<{ SCALED_WIDTH * SCALED_HEIGHT }, { SCALED_WIDTH * SCALED_HEIGHT }>,
+        )
+        .apply_transform_fusable(Truncate::<{ SCALED_WIDTH * SCALED_HEIGHT }, SCALED_WIDTH>)
+        .apply_point(Clamp {
+            min: 0.0,
+            max: 1.0,
+            nan_handling: featurize_core::errors::NanHandling::Fail,
+        })
+        .build();
 
     let output_size = pipe.output_len();
     let mut output = vec![0.0f32; output_size];

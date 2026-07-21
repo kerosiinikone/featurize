@@ -57,14 +57,21 @@ impl Mnist {
         let scale = Scale2D::<300, 300, 1, 28, 28, 1>;
         // vec![300, 300, 4], 4
         let mut preprocessor = Pipeline::new()
-            .apply_transform(Grayscale::<300, 300, 4> { invert: true })
+            .apply_transform(Grayscale::<300, 300, 4> {
+                invert: true,
+                ..Default::default()
+            })
             .apply_transform(scale)
-            .apply_point(Div { factor: 255.0 })
+            .apply_point(Div {
+                factor: 255.0,
+                ..Default::default()
+            })
             .apply_point(Normalize {
                 mean: 0.1307,
                 std: 0.3081,
+                ..Default::default()
             })
-            .build::<360_000>();
+            .build();
 
         preprocessor.execute(rgba_data, &mut preprocessed_data);
 

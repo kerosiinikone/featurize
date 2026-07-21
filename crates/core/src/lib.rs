@@ -2,13 +2,17 @@
 
 extern crate alloc;
 
+pub mod errors;
 pub mod image;
 pub mod mel_spectrogram;
 pub mod ops;
 pub mod pipeline;
 pub mod prelude;
 pub mod traits;
-pub mod errors;
+
+pub(crate) const fn _const_max_usize(a: usize, b: usize) -> usize {
+    if a > b { a } else { b }
+}
 
 #[cfg(test)]
 mod tests {

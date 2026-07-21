@@ -1,14 +1,26 @@
 use crate::{
-    errors::PipeError,
+    errors::{NanHandling, PipeError, check_finite},
     traits::{False, TransformOp},
 };
 
 /// Grayscale operation (channel reduction)
 /// Converts multi-channel data to single channel using luminance weights for RGB
 /// or averaging for other channel counts
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize> {
     pub invert: bool,
+    pub nan_handling: NanHandling,
+}
+
+impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Default
+    for Grayscale<IN_W, IN_H, IN_C>
+{
+    fn default() -> Self {
+        Self {
+            invert: false,
+            nan_handling: NanHandling::default(),
+        }
+    }
 }
 
 impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Grayscale<IN_W, IN_H, IN_C> {
@@ -19,6 +31,9 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Grayscale<IN_W, IN
 
     #[inline(always)]
     fn compute_luminance(&self, channels: &[f32]) -> f32 {
+        const {
+            assert!(IN_C != 0, "No channels");
+        }
         match IN_C {
             3 | 4 if channels.len() >= 3 => {
                 let r = self.apply_inversion(channels[0]);
@@ -40,6 +55,9 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
 {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = IN_W * IN_H * IN_C;
+    const OUT_LEN: usize = IN_W * IN_H;
+
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
@@ -47,37 +65,25 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        // if input.len() != IN_W * IN_H * IN_C {
-        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        // }
-
         for i in 0..n {
             let base_idx = i * IN_C;
             unsafe {
                 let in_chunk = core::slice::from_raw_parts(input.as_ptr().add(base_idx), IN_C);
-                *out.get_unchecked_mut(i) = self.compute_luminance(in_chunk);
+                let luminance = self.compute_luminance(in_chunk);
+                *out.get_unchecked_mut(i) = check_finite(luminance, self.nan_handling)?;
             }
         }
         Ok(out)
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let base_idx = out_index * IN_C;
-        unsafe {
+        let luminance = unsafe {
             let in_chunk = core::slice::from_raw_parts(data.as_ptr().add(base_idx), IN_C);
             self.compute_luminance(in_chunk)
-        }
-    }
-
-    #[inline(always)]
-    fn input_len(&self) -> usize {
-        IN_W * IN_H * IN_C
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        IN_W * IN_H
+        };
+        check_finite(luminance, self.nan_handling)
     }
 }
 
@@ -104,6 +110,9 @@ impl<
 {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = IN_W * IN_H * IN_C;
+    const OUT_LEN: usize = OUT_W * OUT_H * OUT_C;
+
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
@@ -111,20 +120,16 @@ impl<
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        // if input.len() != IN_W * IN_H * IN_C {
-        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        // }
-
         for out_index in 0..n {
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
         }
         Ok(out)
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let out_c = if OUT_C > 1 { out_index % OUT_C } else { 0 };
         let pixel_index = if OUT_C > 1 {
             out_index / OUT_C
@@ -139,17 +144,7 @@ impl<
         let in_y = (out_y * IN_H) / OUT_H;
         let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
 
-        unsafe { *data.get_unchecked(in_idx) }
-    }
-
-    #[inline(always)]
-    fn input_len(&self) -> usize {
-        IN_W * IN_H * IN_C
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        OUT_W * OUT_H * OUT_C
+        Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 }
 
@@ -177,8 +172,11 @@ impl<
 {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = IN_W * IN_H * IN_C;
+    const OUT_LEN: usize = OUT_W * OUT_H * IN_C;
+
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let out_c = out_index % IN_C;
         let pixel_index = out_index / IN_C;
         let out_x = pixel_index % OUT_W;
@@ -189,7 +187,7 @@ impl<
 
         let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
 
-        unsafe { *data.get_unchecked(in_idx) }
+        Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
     #[inline(always)]
@@ -205,20 +203,10 @@ impl<
 
         for out_index in 0..n {
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
         }
         Ok(out)
-    }
-
-    #[inline(always)]
-    fn input_len(&self) -> usize {
-        IN_W * IN_H * IN_C
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        OUT_W * OUT_H * IN_C
     }
 }
 
@@ -229,8 +217,11 @@ pub struct Rotate90<const W: usize, const H: usize, const C: usize>;
 impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W, H, C> {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = W * H * C;
+    const OUT_LEN: usize = W * H * C;
+
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % H;
@@ -241,7 +232,7 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
-        unsafe { *data.get_unchecked(in_idx) }
+        Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
     #[inline(always)]
@@ -251,26 +242,12 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        // if input.len() != W * H * C {
-        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        // }
-
         for out_index in 0..n {
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
         }
         Ok(out)
-    }
-
-    #[inline(always)]
-    fn input_len(&self) -> usize {
-        W * H * C
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        W * H * C
     }
 }
 
@@ -281,8 +258,11 @@ pub struct FlipHorizontal<const W: usize, const H: usize, const C: usize>;
 impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizontal<W, H, C> {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = W * H * C;
+    const OUT_LEN: usize = W * H * C;
+
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % W;
@@ -293,7 +273,7 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
-        unsafe { *data.get_unchecked(in_idx) }
+        Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
     #[inline(always)]
@@ -303,26 +283,12 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        // if input.len() != W * H * C {
-        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        // }
-
         for out_index in 0..n {
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
         }
         Ok(out)
-    }
-
-    #[inline(always)]
-    fn input_len(&self) -> usize {
-        W * H * C
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        W * H * C
     }
 }
 
@@ -333,8 +299,11 @@ pub struct FlipVertical<const W: usize, const H: usize, const C: usize>;
 impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertical<W, H, C> {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = W * H * C;
+    const OUT_LEN: usize = W * H * C;
+
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> f32 {
+    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % W;
@@ -345,7 +314,7 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertica
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
-        unsafe { *data.get_unchecked(in_idx) }
+        Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
     #[inline(always)]
@@ -355,25 +324,11 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertica
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        // if input.len() != W * H * C {
-        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        // }
-
         for out_index in 0..n {
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index);
+                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
         }
         Ok(out)
-    }
-
-    #[inline(always)]
-    fn input_len(&self) -> usize {
-        W * H * C
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        W * H * C
     }
 }

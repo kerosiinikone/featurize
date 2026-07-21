@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use alloc::{boxed::Box, vec};
 
 use crate::{
-    errors::{ErrorKind, PipeError},
+    errors::PipeError,
     traits::{
         EMark, ElementElement, ElementOp, Fused, Head, IndexRemappable, IsTrue, Link, Stage, TMark,
         TransformElement, TransformOp, TransformTransform,
@@ -11,7 +11,6 @@ use crate::{
 };
 
 /// Initializer
-#[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 pub struct Pipeline;
 
@@ -32,12 +31,11 @@ where
     // Options
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 // Generic over floating-point type?
 // IF A FUTURE OPTION IS SPECIFIED, A NON-LENGTH GENERIC STRUCT IS USED INSTEAD (resulting in
 // dynamic boud check)
-pub struct PipeExec<T, const LEN: usize>
+pub struct PipeExec<T>
 where
     T: Stage,
 {
@@ -52,17 +50,24 @@ where
     // BACKEND INTEGRATION THROUGH EXT TRAIT (not in core)
 }
 
-#[allow(dead_code)]
 impl Pipeline {
     pub fn new() -> Pipeline {
         Pipeline {}
     }
 
     /// Creates the initialized pipe implicitly
-    pub fn apply_point<T>(self, op: T) -> Pipe<Head<T, EMark>>
+    pub fn apply_point<T, const INPUT_LEN: usize>(self, op: T) -> Pipe<Head<T, EMark, INPUT_LEN>>
     where
         T: ElementOp,
     {
+        // Input data size must be known with ElementOp as head
+        const {
+            assert!(
+                INPUT_LEN != 0,
+                "Input data size must be known with point operations as head"
+            );
+        }
+
         Pipe {
             stages: Head {
                 root_op: op,
@@ -85,17 +90,16 @@ impl Pipeline {
     }
 }
 
-#[allow(dead_code)]
 impl<T> Pipe<T>
 where
     T: Stage,
 {
     /// The input data dims must be known at the point, unless a (future) option is specified
-    pub fn build<const LEN: usize>(self) -> PipeExec<T, LEN>
+    pub fn build(self) -> PipeExec<T>
     where
         T: Stage,
     {
-        let buf_size = self.stages.buf_size::<LEN>();
+        let buf_size = T::MAX_BUF_SIZE;
 
         PipeExec {
             in_buf: vec![0f32; buf_size].into_boxed_slice(),
@@ -105,38 +109,26 @@ where
     }
 }
 
-impl<T: Stage, const LEN: usize> PipeExec<T, LEN> {
+impl<T: Stage> PipeExec<T> {
     pub fn execute(&mut self, input: &[f32], output_buf: &mut [f32]) -> Result<(), PipeError>
     where
         T: Stage,
     {
-        let output_len = self.output_len();
         let out_buf = &mut self.out_buf;
         let in_buf = &mut self.in_buf;
 
-        if input.len() != LEN {
-            return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        }
-
-        if output_buf.len() < output_len {
-            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
-        }
-
-        let exec = &self
-            .stages
-            .execute::<LEN>(input, in_buf, out_buf)
-            .expect("Failed");
+        let exec = &self.stages.execute(input, in_buf, out_buf)?;
         output_buf[..exec.len()].copy_from_slice(&exec);
 
         Ok(())
     }
 
     pub fn output_len(&self) -> usize {
-        self.stages.output_len::<LEN>()
+        T::OUT_LEN
     }
 }
 
-impl<T: ElementOp> Pipe<Head<T, EMark>> {
+impl<T: ElementOp, const INPUT_LEN: usize> Pipe<Head<T, EMark, INPUT_LEN>> {
     pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, EMark>>
     where
         U: ElementOp,
@@ -166,8 +158,11 @@ impl<T: ElementOp> Pipe<Head<T, EMark>> {
     }
 }
 
-impl<T: TransformOp> Pipe<Head<T, TMark>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, TransformElement>, TMark>>
+impl<T: TransformOp, const INPUT_LEN: usize> Pipe<Head<T, TMark, INPUT_LEN>> {
+    pub fn apply_point<U>(
+        self,
+        op: U,
+    ) -> Pipe<Head<Fused<T, U, TransformElement>, TMark, INPUT_LEN>>
     where
         U: ElementOp,
     {
@@ -181,7 +176,7 @@ impl<T: TransformOp> Pipe<Head<T, TMark>> {
         }
     }
 
-    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, TMark>, TMark>>
+    pub fn apply_transform<U>(self, op: U) -> Pipe<Link<U, Head<T, TMark, INPUT_LEN>, TMark>>
     where
         U: TransformOp,
     {
@@ -197,7 +192,7 @@ impl<T: TransformOp> Pipe<Head<T, TMark>> {
     }
 }
 
-impl<T> Pipe<Head<T, TMark>>
+impl<T, const INPUT_LEN: usize> Pipe<Head<T, TMark, INPUT_LEN>>
 where
     T: TransformOp + IndexRemappable,
     T::IndexRemapping: IsTrue,

@@ -373,17 +373,20 @@ impl Decoder {
         const N_MEL: usize = 80;
         let mel_op = LogMelSpectrogram::<{ m::N_FFT }, { m::HOP_LENGTH }, N_MEL>::new(
             self.mel_filters.clone(),
-            false, 
+            false,
             m::CHUNK_LENGTH,
             single_channel_len,
         );
 
         let pipeline_normalize = Pipeline::new()
-            .apply_point(Div { factor: 32768.0 })
+            .apply_point::<_, 176000>(Div {
+                factor: 32768.0,
+                ..Default::default()
+            })
             .apply_transform(mel_op);
 
-        let mut pipe_exec = pipeline_normalize.build::<176000>();
-        let mut mel = vec![0.0f32; pipe_exec.output_shape()];
+        let mut pipe_exec = pipeline_normalize.build();
+        let mut mel = vec![0.0f32; pipe_exec.output_len()];
         pipe_exec.execute(&data, &mut mel);
 
         // Final tensor conversion, with shape (1, x, y)

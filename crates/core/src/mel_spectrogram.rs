@@ -1,5 +1,5 @@
 use crate::{
-    errors::{PipeError},
+    errors::{check_finite, NanHandling, PipeError},
     traits::{False, TransformOp},
 };
 use alloc::vec;
@@ -146,7 +146,8 @@ fn log_mel_spectrogram_w<T: Float>(
             for k in 0..n_fft {
                 sum += fft_out[k] * filters[j * n_fft + k];
             }
-            mel[j * n_len + i] = T::max(sum, T::from(1e-10).unwrap()).log10();
+            let log_val = T::max(sum, T::from(1e-10).unwrap()).log10();
+            mel[j * n_len + i] = log_val;
         }
     }
     mel
@@ -159,19 +160,19 @@ pub struct LogMelSpectrogram<const N_FFT: usize, const HOP_LENGTH: usize, const 
     pub filters: Vec<f32>,
     pub speed_up: bool,
     pub pad_chunk_length: usize,
+    pub nan_handling: NanHandling,
     hann_window: Vec<f32>,
-    // TODO: static size at comptime -> const generic
-    output_len: usize,
 }
 
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
     LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {
-    pub fn new(
+    pub fn with_nan_handling(
         filters: Vec<f32>,
         speed_up: bool,
         pad_chunk_length: usize,
-        input_len: usize,
+        _input_len: usize,
+        nan_handling: NanHandling,
     ) -> Self {
         let half = 0.5f32;
         let one = 1.0f32;
@@ -182,26 +183,31 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
             .map(|i| half * (one - ((two_pi * i as f32) / fft_size_t).cos()))
             .collect();
 
-        let n_len = input_len / HOP_LENGTH;
-        let pad = 100 * pad_chunk_length / 2;
-        let n_len = if !n_len.is_multiple_of(pad) {
-            (n_len / pad + 1) * pad
-        } else {
-            n_len
-        };
-        let n_len = n_len + pad;
-        let output_len = n_len * N_MEL;
-
         Self {
             filters,
             speed_up,
             pad_chunk_length,
+            nan_handling,
             hann_window,
-            output_len,
         }
     }
 
-    fn compute_mel_spectrogram(&self, samples: &[f32]) -> Vec<f32> {
+    pub fn new(
+        filters: Vec<f32>,
+        speed_up: bool,
+        pad_chunk_length: usize,
+        input_len: usize,
+    ) -> Self {
+        Self::with_nan_handling(
+            filters,
+            speed_up,
+            pad_chunk_length,
+            input_len,
+            NanHandling::default(),
+        )
+    }
+
+    fn compute_mel_spectrogram(&self, samples: &[f32]) -> Result<Vec<f32>, PipeError> {
         let zero = 0.0f32;
         let n_len = samples.len() / HOP_LENGTH;
         let pad = 100 * self.pad_chunk_length / 2;
@@ -244,10 +250,11 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
 
         for m in mel.iter_mut() {
             let v = f32::max(*m, mmax);
-            *m = v / 4.0 + 1.0;
+            let normalized = v / 4.0 + 1.0;
+            *m = check_finite(normalized, self.nan_handling)?;
         }
 
-        mel
+        Ok(mel)
     }
 }
 
@@ -256,22 +263,19 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformO
 {
     type IndexRemapping = False;
 
+    const IN_LEN: usize = 0;
+    const OUT_LEN: usize = 0;
+
     #[inline(always)]
     fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], _n: usize) -> Result<&'o mut [f32], PipeError> {
-        let mel = self.compute_mel_spectrogram(input);
+        let mel = self.compute_mel_spectrogram(input)?;
         let copy_len = mel.len().min(out.len());
         out[..copy_len].copy_from_slice(&mel[..copy_len]);
         Ok(out)
     }
 
-    // TODO: no fixed input size req?
     #[inline(always)]
-    fn input_len(&self) -> usize {
-        0
-    }
-
-    #[inline(always)]
-    fn output_len(&self) -> usize {
-        self.output_len
+    fn nan_handling(&self) -> NanHandling {
+        self.nan_handling
     }
 }
