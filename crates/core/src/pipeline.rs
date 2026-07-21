@@ -42,6 +42,7 @@ where
     // Pipe typestate
     // Accessing the underlying T -> helper methods
     stages: T,
+    max_expected_input_length: Option<usize>,
     // Options
     // Input data parameters
     // These are allocated only at the build stage
@@ -60,14 +61,6 @@ impl Pipeline {
     where
         T: ElementOp,
     {
-        // Input data size must be known with ElementOp as head
-        const {
-            assert!(
-                INPUT_LEN != 0,
-                "Input data size must be known with point operations as head"
-            );
-        }
-
         Pipe {
             stages: Head {
                 root_op: op,
@@ -94,16 +87,35 @@ impl<T> Pipe<T>
 where
     T: Stage,
 {
-    /// The input data dims must be known at the point, unless a (future) option is specified
+    // The input data dims must be known at this point
     pub fn build(self) -> PipeExec<T>
     where
         T: Stage,
     {
+        const {
+            assert!(T::MAX_BUF_SIZE > 0, "Pipeline has dynamic bounds");
+        }
         let buf_size = T::MAX_BUF_SIZE;
 
         PipeExec {
             in_buf: vec![0f32; buf_size].into_boxed_slice(),
             out_buf: vec![0f32; buf_size].into_boxed_slice(),
+            stages: self.stages,
+            max_expected_input_length: None,
+        }
+    }
+
+    // Dynamic bound checking
+    pub fn build_dynamic(self, max_expected_input_length: usize) -> PipeExec<T>
+    where
+        T: Stage,
+    {
+        let buf_size = self.stages.max_buf_size_dynamic(max_expected_input_length);
+
+        PipeExec {
+            in_buf: vec![0f32; buf_size].into_boxed_slice(),
+            out_buf: vec![0f32; buf_size].into_boxed_slice(),
+            max_expected_input_length: Some(max_expected_input_length),
             stages: self.stages,
         }
     }
@@ -124,12 +136,17 @@ impl<T: Stage> PipeExec<T> {
     }
 
     pub fn output_len(&self) -> usize {
-        T::OUT_LEN
+        let default_output = if T::OUT_LEN > 0 {
+            T::OUT_LEN
+        } else {
+            self.max_expected_input_length.expect("dynamic")
+        };
+        self.stages.out_len_dynamic(default_output)
     }
 }
 
 impl<T: ElementOp, const INPUT_LEN: usize> Pipe<Head<T, EMark, INPUT_LEN>> {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, EMark>>
+    pub fn apply_point<U>(self, op: U) -> Pipe<Head<Fused<T, U, ElementElement>, EMark, INPUT_LEN>>
     where
         U: ElementOp,
     {
@@ -143,7 +160,10 @@ impl<T: ElementOp, const INPUT_LEN: usize> Pipe<Head<T, EMark, INPUT_LEN>> {
         }
     }
 
-    pub fn apply_transform<U>(self, op: U) -> Pipe<Head<Fused<U, T, TransformElement>, TMark>>
+    pub fn apply_transform<U>(
+        self,
+        op: U,
+    ) -> Pipe<Head<Fused<U, T, TransformElement>, TMark, INPUT_LEN>>
     where
         U: TransformOp,
     {
@@ -200,7 +220,7 @@ where
     pub fn apply_transform_fusable<U>(
         self,
         op: U,
-    ) -> Pipe<Head<Fused<T, U, TransformTransform>, TMark>>
+    ) -> Pipe<Head<Fused<T, U, TransformTransform>, TMark, INPUT_LEN>>
     where
         U: TransformOp,
         U::IndexRemapping: IsTrue,

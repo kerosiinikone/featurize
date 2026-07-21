@@ -1,8 +1,6 @@
-use core::marker::PhantomData;
-
 use crate::{
     _const_max_usize,
-    errors::{NanHandling, PipeError},
+    errors::{ErrorKind, NanHandling, PipeError},
 };
 
 /// Link<Head<RootOp>, PipeOp>
@@ -19,6 +17,12 @@ pub trait Stage {
         in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
     ) -> Result<&'o [f32], PipeError>;
+
+    /// Computes the maximum buffer size dynamically
+    fn max_buf_size_dynamic(&self, input_len: usize) -> usize;
+
+    /// Computes the output length dynamically
+    fn out_len_dynamic(&self, input_len: usize) -> usize;
 }
 
 /// Stage marks (curr op)
@@ -28,7 +32,7 @@ pub struct EMark;
 /// Generic over the root operation
 pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
     pub root_op: T,
-    pub marker: PhantomData<Mark>,
+    pub marker: core::marker::PhantomData<Mark>,
 }
 
 /// Generic over the previous stage, current operation
@@ -38,7 +42,7 @@ where
 {
     pub prev_stage: S,
     pub curr_op: T,
-    pub marker: PhantomData<Mark>,
+    pub marker: core::marker::PhantomData<Mark>,
 }
 
 /// Point-wise operations that work on individual elements
@@ -61,7 +65,7 @@ pub trait ElementOp {
         Fused {
             prev_op: self,
             curr_op: op,
-            marker: PhantomData {},
+            marker: core::marker::PhantomData {},
         }
     }
 
@@ -74,7 +78,7 @@ pub trait ElementOp {
         Fused {
             prev_op: op,
             curr_op: self,
-            marker: PhantomData {},
+            marker: core::marker::PhantomData {},
         }
     }
 }
@@ -90,15 +94,14 @@ pub trait TransformOp {
     /// Define whether an operation is a pure index remapping (can be fused)
     type IndexRemapping;
 
-    // Leaving these at 0 might result in out-of-bounds accesses
+    // Leaving these at zero might result in out-of-bounds accesses
     // Creating ops with helpers (either sized or not sized, global options?)
     const IN_LEN: usize = 0;
     const OUT_LEN: usize = 0;
     /// Check the validity of passed in data compared to what is known
-    // ONLY set for Fused<T, T> operations
     const INTERNAL_IS_VALID: bool = true;
 
-    /// Get the NaN handling policy for this operation (default: FailFast)
+    /// Get the NaN handling policy for this operation
     fn nan_handling(&self) -> NanHandling {
         NanHandling::Fail
     }
@@ -131,6 +134,18 @@ pub trait TransformOp {
     /// Runtime setup / initialization method for operations
     fn setup(&self) {}
 
+    /// When defining dynamic operations, overwrite this
+    #[inline(always)]
+    fn in_len(&self) -> usize {
+        Self::IN_LEN
+    }
+
+    /// When defining dynamic operations, overwrite this
+    #[inline(always)]
+    fn out_len(&self) -> usize {
+        Self::OUT_LEN
+    }
+
     #[inline(always)]
     fn fuse_element<U>(self, op: U) -> Fused<Self, U, TransformElement>
     where
@@ -140,7 +155,7 @@ pub trait TransformOp {
         Fused {
             prev_op: self,
             curr_op: op,
-            marker: PhantomData {},
+            marker: core::marker::PhantomData {},
         }
     }
 }
@@ -160,7 +175,7 @@ where
         Fused {
             prev_op: self,
             curr_op: op,
-            marker: PhantomData {},
+            marker: core::marker::PhantomData {},
         }
     }
 }
@@ -180,14 +195,12 @@ pub struct TransformElement;
 
 /// Generic over the previous operation and current
 /// Allows for fusing the operations
-/// In the future -> 1:1 operations can be fused if they are of TransformOp type
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct Fused<T, S, FusedState = ElementElement> {
     pub prev_op: T,
     pub curr_op: S,
 
-    marker: PhantomData<FusedState>,
+    marker: core::marker::PhantomData<FusedState>,
 }
 
 impl<T: ElementOp, S: ElementOp> ElementOp for Fused<T, S, ElementElement> {
@@ -237,6 +250,7 @@ impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement>
         self.curr_op.compute(prev)
     }
 
+    #[inline(always)]
     fn execute<'i, 'o>(
         &self,
         out: &'o mut [f32],
@@ -250,6 +264,16 @@ impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement>
         }
         Ok(out)
     }
+
+    #[inline(always)]
+    fn in_len(&self) -> usize {
+        self.prev_op.in_len()
+    }
+
+    #[inline(always)]
+    fn out_len(&self) -> usize {
+        self.prev_op.out_len()
+    }
 }
 
 impl<T: TransformOp, S: TransformOp> TransformOp for Fused<T, S, TransformTransform>
@@ -261,6 +285,7 @@ where
 
     const OUT_LEN: usize = S::OUT_LEN;
     const IN_LEN: usize = T::IN_LEN;
+    // TODO: check overlap with other static asserts
     const INTERNAL_IS_VALID: bool = S::IN_LEN == T::OUT_LEN || S::IN_LEN == 0 || T::IN_LEN == 0;
 
     #[inline(always)]
@@ -292,6 +317,16 @@ where
         }
         Ok(out)
     }
+
+    #[inline(always)]
+    fn in_len(&self) -> usize {
+        self.prev_op.in_len()
+    }
+
+    #[inline(always)]
+    fn out_len(&self) -> usize {
+        self.curr_op.out_len()
+    }
 }
 
 impl<T: ElementOp, const INPUT_LEN: usize> Stage for Head<T, EMark, INPUT_LEN> {
@@ -306,14 +341,30 @@ impl<T: ElementOp, const INPUT_LEN: usize> Stage for Head<T, EMark, INPUT_LEN> {
         _in_buf: &'i mut [f32],
         out_buf: &'o mut [f32],
     ) -> Result<&'o [f32], PipeError> {
+        let exec_len = if INPUT_LEN > 0 { INPUT_LEN } else { data.len() };
+
+        // Less than allocated
+        if out_buf.len() < exec_len {
+            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+        }
         self.root_op.setup();
 
-        for i in 0..INPUT_LEN {
+        for i in 0..exec_len {
             unsafe {
                 *out_buf.get_unchecked_mut(i) = self.root_op.compute(*data.get_unchecked(i))?;
             }
         }
-        Ok(out_buf)
+        Ok(&out_buf[..exec_len])
+    }
+
+    #[inline(always)]
+    fn max_buf_size_dynamic(&self, input_len: usize) -> usize {
+        if INPUT_LEN > 0 { INPUT_LEN } else { input_len }
+    }
+
+    #[inline(always)]
+    fn out_len_dynamic(&self, input_len: usize) -> usize {
+        if INPUT_LEN > 0 { INPUT_LEN } else { input_len }
     }
 }
 
@@ -330,15 +381,37 @@ impl<T: TransformOp, const INPUT_LEN: usize> Stage for Head<T, TMark, INPUT_LEN>
         out_buf: &'o mut [f32],
     ) -> Result<&'o [f32], PipeError> {
         const {
+            // TODO: must match?
+            // let input_len = INPUT_LEN;
+            // let op_input_len = Self::IN_LEN;
             let is_valid = T::INTERNAL_IS_VALID;
             assert!(is_valid, "Invalid input length");
         }
 
-        self.root_op.setup();
-        let n = T::OUT_LEN;
+        let expected_in = self.root_op.in_len();
+        if expected_in > 0 && data.len() != expected_in {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
+        // If the op's generic can be zero, the out_len default
+        // impl must be overwritten
+        let n = self.root_op.out_len();
+        if out_buf.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+        }
 
         let out = &mut out_buf[0..n];
         Ok(self.root_op.execute(out, data, n)?)
+    }
+
+    #[inline(always)]
+    fn max_buf_size_dynamic(&self, _input_len: usize) -> usize {
+        self.root_op.out_len()
+    }
+
+    #[inline(always)]
+    fn out_len_dynamic(&self, _input_len: usize) -> usize {
+        self.root_op.out_len()
     }
 }
 
@@ -359,7 +432,8 @@ impl<T: TransformOp, S: Stage> Stage for Link<T, S, TMark> {
             let prev_out = Self::IN_LEN;
             let curr_in = T::IN_LEN;
             assert!(
-                is_valid && prev_out == curr_in || prev_out == 0 || curr_in == 0,
+                // TODO: make sure these do not overlap
+                is_valid && (prev_out == curr_in || prev_out == 0 || curr_in == 0),
                 "Invalid input length"
             );
         }
@@ -367,10 +441,34 @@ impl<T: TransformOp, S: Stage> Stage for Link<T, S, TMark> {
         let prev_out = self.prev_stage.execute(data, out_buf, in_buf)?;
         self.curr_op.setup();
 
-        let n = T::OUT_LEN;
-        let out = &mut out_buf[0..n];
+        let expected_in = self.curr_op.in_len();
+        if expected_in > 0 && prev_out.len() != expected_in {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
 
+        let n = self.curr_op.out_len();
+        if out_buf.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+        }
+
+        let out = &mut out_buf[0..n];
         Ok(self.curr_op.execute(out, prev_out, n)?)
+    }
+
+    #[inline(always)]
+    fn max_buf_size_dynamic(&self, input_len: usize) -> usize {
+        let prev_max = self.prev_stage.max_buf_size_dynamic(input_len);
+        let curr_out = self.curr_op.out_len();
+        if prev_max > curr_out {
+            prev_max
+        } else {
+            curr_out
+        }
+    }
+
+    #[inline(always)]
+    fn out_len_dynamic(&self, _input_len: usize) -> usize {
+        self.curr_op.out_len()
     }
 }
 
@@ -389,11 +487,34 @@ impl<T: ElementOp, S: Stage> Stage for Link<T, S, EMark> {
         let prev_out = self.prev_stage.execute(data, out_buf, in_buf)?;
         self.curr_op.setup();
 
-        for i in 0..Self::OUT_LEN {
+        // If prev out is statically defined, use it
+        let n = if Self::IN_LEN > 0 {
+            Self::IN_LEN
+        } else {
+            prev_out.len()
+        };
+
+        if out_buf.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+        }
+
+        for i in 0..n {
             unsafe {
                 *out_buf.get_unchecked_mut(i) = self.curr_op.compute(*prev_out.get_unchecked(i))?;
             }
         }
-        Ok(out_buf)
+        Ok(&out_buf[..n])
+    }
+
+    // Does not change the buf size
+    #[inline(always)]
+    fn max_buf_size_dynamic(&self, input_len: usize) -> usize {
+        self.prev_stage.max_buf_size_dynamic(input_len)
+    }
+
+    // Does not change the buf size
+    #[inline(always)]
+    fn out_len_dynamic(&self, input_len: usize) -> usize {
+        self.prev_stage.out_len_dynamic(input_len)
     }
 }

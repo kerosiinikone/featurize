@@ -6,3 +6,4 @@ pub use crate::ops::{
 };
 pub use crate::pipeline::{Pipe, PipeExec, Pipeline};
 pub use crate::traits::{EMark, ElementOp, Head, Link, Stage, TMark, TransformOp};
+pub use crate::DYNAMIC_SIZE;

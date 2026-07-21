@@ -10,6 +10,9 @@ pub mod pipeline;
 pub mod prelude;
 pub mod traits;
 
+// Labeling dynamic pipelines (for now)
+pub const DYNAMIC_SIZE: usize = 0;
+
 pub(crate) const fn _const_max_usize(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
 }
