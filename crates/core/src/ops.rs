@@ -244,6 +244,7 @@ impl<const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp for Truncate<O
         input: &'i [f32],
         _: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // TODO: n?
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), NEW_LEN);
         }

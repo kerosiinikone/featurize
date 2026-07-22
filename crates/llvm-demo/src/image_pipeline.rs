@@ -27,7 +27,7 @@ fn main() {
         //     invert: false,
         //     ..Default::default()
         // })
-        .apply_point::<_, DYNAMIC_SIZE>(Div {
+        .apply_point::<_, { WIDTH * HEIGHT * CHANNELS }>(Div {
             factor: 255.0,
             ..Default::default()
         })
@@ -44,10 +44,9 @@ fn main() {
             max: 1.0,
             nan_handling: featurize_core::errors::NanHandling::Fail,
         })
-        .build_dynamic(WIDTH * HEIGHT * CHANNELS);
+        .build();
 
-    let output_size = pipe.output_len();
-    let mut output = vec![0.0f32; output_size];
+    let mut output = vec![0.0f32; WIDTH * HEIGHT * 10];
 
     pipe.execute(&input_data, &mut output);
 

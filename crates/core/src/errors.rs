@@ -4,8 +4,6 @@ use core::{
     fmt::{Debug, Display},
 };
 
-// use crate::traits::Stage;
-
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ErrorKind {
@@ -38,7 +36,6 @@ pub fn check_finite(value: f32, handling: NanHandling) -> Result<f32, PipeError>
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PipeError {
     kind: ErrorKind,
@@ -69,5 +66,9 @@ impl PipeError {
             // source: None,
             message: None,
         }
+    }
+
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
     }
 }

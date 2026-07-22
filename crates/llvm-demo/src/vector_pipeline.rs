@@ -11,7 +11,9 @@ fn main() {
     }
 
     let mut pipe = Pipeline::new()
-        .apply_point::<_, VECTOR_LEN>(Normalize {
+        .apply_transform(Reverse::<{ VECTOR_LEN }>)
+        .apply_transform_fusable(Truncate::<VECTOR_LEN, TRUNCATED_LEN>)
+        .apply_point(Normalize {
             mean: 50.0,
             std: 25.0,
             ..Default::default()
@@ -31,16 +33,14 @@ fn main() {
             factor: 2.0,
             ..Default::default()
         })
-        .apply_transform(Reverse::<{ VECTOR_LEN }>)
-        .apply_transform_fusable(Truncate::<VECTOR_LEN, TRUNCATED_LEN>)
         .build();
 
-    let output_size = pipe.output_len();
-    let mut output = vec![0.0f32; output_size];
+    // let output_size = pipe.output_len();
+    // let mut output = vec![0.0f32; output_size];
+    //
+    // pipe.execute(&input_data, &mut output);
 
-    pipe.execute(&input_data, &mut output);
-
-    println!("Vector Pipeline Demo");
-    println!("  output = {:?}", output);
-    println!("  input = {:?}", input_data);
+    // println!("Vector Pipeline Demo");
+    // println!("  output = {:?}", output);
+    // println!("  input = {:?}", input_data);
 }
