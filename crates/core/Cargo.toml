@@ -8,7 +8,12 @@ num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 
 [dev-dependencies]
 trybuild = "1.0"
+proptest = "1.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "profile"
+harness = false
 
 [[test]]
-name = "compile_fail"
-harness = false
+name = "prop_tests"

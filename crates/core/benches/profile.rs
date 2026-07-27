@@ -1,3 +1,4 @@
+use criterion::{criterion_group, criterion_main, Criterion};
 use featurize_core::prelude::*;
 
 const WIDTH: usize = 64;
@@ -6,7 +7,8 @@ const CHANNELS: usize = 4;
 const SCALED_WIDTH: usize = 32;
 const SCALED_HEIGHT: usize = 32;
 
-fn main() {
+// From the llvm-demo/
+fn image_pipeline() {
     let mut input_data = vec![0.0f32; WIDTH * HEIGHT * CHANNELS];
 
     for y in 0..HEIGHT {
@@ -49,3 +51,10 @@ fn main() {
     let mut output = vec![0.0f32; WIDTH * HEIGHT * 10];
     pipe.execute(&input_data, &mut output).unwrap();
 }
+
+fn criterion_benchmark(c: &mut Criterion) {
+    c.bench_function("image_pipeline_default", |b| b.iter(|| image_pipeline()));
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);

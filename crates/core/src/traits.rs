@@ -3,20 +3,24 @@ use crate::{
     errors::{ErrorKind, NanHandling, PipeError},
 };
 
+/// Float trait bound for pipeline operations
+pub trait Float: num_traits::Float + num_traits::FloatConst + Default + Copy + 'static {}
+impl Float for f32 {}
+impl Float for f64 {}
+
 /// Link<Head<RootOp>, PipeOp>
 /// The pipeline wrapper encloses these 'stages'
-pub trait Stage {
+pub trait Stage<T: Float = f32> {
     const IN_LEN: usize;
     const OUT_LEN: usize;
     const MAX_BUF_SIZE: usize;
 
-    // Return back to pass-through upon build?
     fn execute<'i, 'o>(
         &self,
-        data: &[f32],
-        in_buf: &'i mut [f32],
-        out_buf: &'o mut [f32],
-    ) -> Result<&'o [f32], PipeError>;
+        data: &[T],
+        in_buf: &'i mut [T],
+        out_buf: &'o mut [T],
+    ) -> Result<&'o [T], PipeError>;
 
     /// Computes the maximum buffer size dynamically
     fn max_buf_size_dynamic(&self, input_len: usize) -> usize;
@@ -37,19 +41,23 @@ pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
     pub marker: core::marker::PhantomData<Mark>,
 }
 
+// TODO: simplify the type signature!
 /// Generic over the previous stage, current operation
-pub struct Link<T, S, Mark>
+pub struct Link<T, S, Mark, F>
 where
-    S: Stage,
+    F: Float,
+    S: Stage<F>,
 {
     pub prev_stage: S,
     pub curr_op: T,
     pub marker: core::marker::PhantomData<Mark>,
+    // !!!
+    pub _float_marker: core::marker::PhantomData<F>,
 }
 
 /// Point-wise operations that work on individual elements
-pub trait ElementOp {
-    fn compute(&self, data: f32) -> Result<f32, PipeError>;
+pub trait ElementOp<T: Float = f32> {
+    fn compute(&self, data: T) -> Result<T, PipeError>;
 
     fn setup(&self) {}
 
@@ -62,7 +70,7 @@ pub trait ElementOp {
     fn fuse_element<U>(self, op: U) -> Fused<Self, U, ElementElement>
     where
         Self: Sized,
-        U: ElementOp,
+        U: ElementOp<T>,
     {
         Fused {
             prev_op: self,
@@ -75,7 +83,7 @@ pub trait ElementOp {
     fn fuse_transform<U>(self, op: U) -> Fused<U, Self, TransformElement>
     where
         Self: Sized,
-        U: TransformOp,
+        U: TransformOp<T>,
     {
         Fused {
             prev_op: op,
@@ -92,7 +100,7 @@ pub trait IsTrue {}
 impl IsTrue for True {}
 
 /// Spatial transformation operations that map from output index to computed value by sampling from input
-pub trait TransformOp {
+pub trait TransformOp<T: Float = f32> {
     /// Define whether an operation is a pure index remapping (can be fused)
     type IndexRemapping;
 
@@ -120,7 +128,7 @@ pub trait TransformOp {
 
     /// Compute output value at given output index by sampling from input data
     #[inline(always)]
-    fn compute(&self, data: &[f32], index: usize) -> Result<f32, PipeError> {
+    fn compute(&self, data: &[T], index: usize) -> Result<T, PipeError> {
         Ok(unsafe { *data.get_unchecked(index) })
     }
 
@@ -128,10 +136,10 @@ pub trait TransformOp {
     /// or index-based iteration (for non-linear operations)
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError>;
+    ) -> Result<&'o mut [T], PipeError>;
 
     /// Runtime setup / initialization method for operations
     fn setup(&self) {}
@@ -152,7 +160,7 @@ pub trait TransformOp {
     fn fuse_element<U>(self, op: U) -> Fused<Self, U, TransformElement>
     where
         Self: Sized,
-        U: ElementOp,
+        U: ElementOp<T>,
     {
         Fused {
             prev_op: self,
@@ -163,7 +171,7 @@ pub trait TransformOp {
 }
 
 /// Extension trait for index-remapping TransformOps that can be fused
-pub trait IndexRemappable: TransformOp
+pub trait IndexRemappable<T: Float = f32>: TransformOp<T>
 where
     Self::IndexRemapping: IsTrue,
 {
@@ -171,7 +179,7 @@ where
     fn fuse_transform<U>(self, op: U) -> Fused<Self, U, TransformTransform>
     where
         Self: Sized,
-        U: TransformOp,
+        U: TransformOp<T>,
         U::IndexRemapping: IsTrue,
     {
         Fused {
@@ -183,12 +191,18 @@ where
 }
 
 /// Blanket implementation: any TransformOp with IndexRemapping = True is IndexRemappable
-impl<T> IndexRemappable for T
+impl<T: Float, U> IndexRemappable<T> for U
 where
-    T: TransformOp,
-    T::IndexRemapping: IsTrue,
+    U: TransformOp<T>,
+    U::IndexRemapping: IsTrue,
 {
 }
+
+// Type aliases for convenience
+pub type PipelineStatic32 = crate::pipeline::PipelineStatic<f32>;
+pub type PipelineStatic64 = crate::pipeline::PipelineStatic<f64>;
+pub type PipelineDynamic32 = crate::pipeline::PipelineDynamic<f32>;
+pub type PipelineDynamic64 = crate::pipeline::PipelineDynamic<f64>;
 
 /// Markers for assuring typestate
 pub struct ElementElement;
@@ -205,19 +219,19 @@ pub struct Fused<T, S, FusedState = ElementElement> {
     marker: core::marker::PhantomData<FusedState>,
 }
 
-impl<T: ElementOp, S: ElementOp> ElementOp for Fused<T, S, ElementElement> {
+impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> ElementOp<T> for Fused<U, S, ElementElement> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let prev = self.prev_op.compute(data)?;
         self.curr_op.compute(prev)
     }
 }
 
-impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
+impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> TransformOp<T> for Fused<U, S, ElementElement> {
     type IndexRemapping = False;
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], index: usize) -> Result<f32, PipeError> {
+    fn compute(&self, data: &[T], index: usize) -> Result<T, PipeError> {
         let prev = self
             .prev_op
             .compute(unsafe { *data.get_unchecked(index) })?;
@@ -226,10 +240,10 @@ impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
 
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         for out_index in 0..n {
             unsafe {
                 *out.get_unchecked_mut(out_index) = TransformOp::compute(self, input, out_index)?;
@@ -239,15 +253,17 @@ impl<T: ElementOp, S: ElementOp> TransformOp for Fused<T, S, ElementElement> {
     }
 }
 
-impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement> {
-    type IndexRemapping = T::IndexRemapping;
+impl<T: Float, U: TransformOp<T>, S: ElementOp<T>> TransformOp<T>
+    for Fused<U, S, TransformElement>
+{
+    type IndexRemapping = U::IndexRemapping;
 
-    const IN_LEN: usize = T::IN_LEN;
-    const OUT_LEN: usize = T::OUT_LEN;
-    const INTERNAL_IS_VALID: bool = T::INTERNAL_IS_VALID;
+    const IN_LEN: usize = U::IN_LEN;
+    const OUT_LEN: usize = U::OUT_LEN;
+    const INTERNAL_IS_VALID: bool = U::INTERNAL_IS_VALID;
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], index: usize) -> Result<f32, PipeError> {
+    fn compute(&self, data: &[T], index: usize) -> Result<T, PipeError> {
         let prev = self.prev_op.compute(data, index)?;
         self.curr_op.compute(prev)
     }
@@ -255,10 +271,10 @@ impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement>
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         for out_index in 0..n {
             unsafe {
                 *out.get_unchecked_mut(out_index) = TransformOp::compute(self, input, out_index)?;
@@ -278,16 +294,17 @@ impl<T: TransformOp, S: ElementOp> TransformOp for Fused<T, S, TransformElement>
     }
 }
 
-impl<T: TransformOp, S: TransformOp> TransformOp for Fused<T, S, TransformTransform>
+impl<T: Float, U: TransformOp<T>, S: TransformOp<T>> TransformOp<T>
+    for Fused<U, S, TransformTransform>
 where
     S::IndexRemapping: IsTrue,
-    T::IndexRemapping: IsTrue,
+    U::IndexRemapping: IsTrue,
 {
     type IndexRemapping = True;
 
     const OUT_LEN: usize = S::OUT_LEN;
-    const IN_LEN: usize = T::IN_LEN;
-    const INTERNAL_IS_VALID: bool = S::IN_LEN == T::OUT_LEN || S::IN_LEN == 0 || T::IN_LEN == 0;
+    const IN_LEN: usize = U::IN_LEN;
+    const INTERNAL_IS_VALID: bool = S::IN_LEN == U::OUT_LEN || S::IN_LEN == 0 || U::IN_LEN == 0;
 
     #[inline(always)]
     fn map_index(&self, out_index: usize) -> usize
@@ -299,7 +316,7 @@ where
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
+    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let input_index = self.map_index(out_index);
         Ok(unsafe { *data.get_unchecked(input_index) })
     }
@@ -307,10 +324,10 @@ where
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         for out_index in 0..n {
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
@@ -330,7 +347,7 @@ where
     }
 }
 
-impl<T: ElementOp, const INPUT_LEN: usize> Stage for Head<T, EMark, INPUT_LEN> {
+impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, EMark, INPUT_LEN> {
     const IN_LEN: usize = INPUT_LEN;
     const OUT_LEN: usize = INPUT_LEN;
     const MAX_BUF_SIZE: usize = INPUT_LEN;
@@ -338,16 +355,18 @@ impl<T: ElementOp, const INPUT_LEN: usize> Stage for Head<T, EMark, INPUT_LEN> {
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        data: &[f32],
-        _in_buf: &'i mut [f32],
-        out_buf: &'o mut [f32],
-    ) -> Result<&'o [f32], PipeError> {
+        data: &[T],
+        _in_buf: &'i mut [T],
+        out_buf: &'o mut [T],
+    ) -> Result<&'o [T], PipeError> {
         self.root_op.setup();
 
         let exec_len = if INPUT_LEN > 0 { INPUT_LEN } else { data.len() };
         let out_len = if Self::OUT_LEN > 0 {
             Self::OUT_LEN
         } else {
+            // Dynamically allocated once all stage buffer
+            // sizes are known
             out_buf.len()
         };
 
@@ -386,30 +405,34 @@ impl<T: ElementOp, const INPUT_LEN: usize> Stage for Head<T, EMark, INPUT_LEN> {
     }
 }
 
-impl<T: TransformOp, const INPUT_LEN: usize> Stage for Head<T, TMark, INPUT_LEN> {
-    const IN_LEN: usize = T::IN_LEN;
-    const OUT_LEN: usize = T::OUT_LEN;
-    const MAX_BUF_SIZE: usize = _const_max_usize(INPUT_LEN, T::OUT_LEN);
+impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, TMark, INPUT_LEN> {
+    const IN_LEN: usize = U::IN_LEN;
+    const OUT_LEN: usize = U::OUT_LEN;
+    const MAX_BUF_SIZE: usize = _const_max_usize(INPUT_LEN, U::OUT_LEN);
 
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        data: &[f32],
-        _in_buf: &'i mut [f32],
-        out_buf: &'o mut [f32],
-    ) -> Result<&'o [f32], PipeError> {
-        // const {
-        //     assert!(T::INTERNAL_IS_VALID, "Invalid input length");
-        // }
-
+        data: &[T],
+        _in_buf: &'i mut [T],
+        out_buf: &'o mut [T],
+    ) -> Result<&'o [T], PipeError> {
         let data_len = if Self::IN_LEN > 0 {
             Self::IN_LEN
         } else {
             data.len()
         };
+
+        // Runtime guardrail, optimized if the last operation was dynamic
+        if data.len() != data_len {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         let expected_in = self.root_op.in_len(data_len);
 
-        if expected_in == 0 || data_len != expected_in || data.len() != data_len {
+        // The operation in_len must never be zero as it is
+        // either statically or dynamically set
+        if expected_in == 0 || data_len != expected_in {
             return Err(PipeError::new(ErrorKind::InvalidInputSize));
         }
 
@@ -439,26 +462,18 @@ impl<T: TransformOp, const INPUT_LEN: usize> Stage for Head<T, TMark, INPUT_LEN>
     }
 }
 
-impl<T: TransformOp, S: Stage> Stage for Link<T, S, TMark> {
+impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, TMark, T> {
     const IN_LEN: usize = S::OUT_LEN;
-    const OUT_LEN: usize = T::OUT_LEN;
-    const MAX_BUF_SIZE: usize = _const_max_usize(S::MAX_BUF_SIZE, T::OUT_LEN);
+    const OUT_LEN: usize = U::OUT_LEN;
+    const MAX_BUF_SIZE: usize = _const_max_usize(S::MAX_BUF_SIZE, U::OUT_LEN);
 
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        data: &[f32],
-        in_buf: &'i mut [f32],
-        out_buf: &'o mut [f32],
-    ) -> Result<&'o [f32], PipeError> {
-        // const {
-        //     assert!(
-        //         T::INTERNAL_IS_VALID
-        //             && (Self::IN_LEN == T::IN_LEN || Self::IN_LEN == 0 || T::IN_LEN == 0),
-        //         "Invalid input length"
-        //     );
-        // }
-        //
+        data: &[T],
+        in_buf: &'i mut [T],
+        out_buf: &'o mut [T],
+    ) -> Result<&'o [T], PipeError> {
         let prev_out = self.prev_stage.execute(data, out_buf, in_buf)?;
         self.curr_op.setup();
 
@@ -467,9 +482,17 @@ impl<T: TransformOp, S: Stage> Stage for Link<T, S, TMark> {
         } else {
             prev_out.len()
         };
+
+        // Runtime guardrail, optimized if the last operation was dynamic
+        if prev_out.len() != data_len {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         let expected_in = self.curr_op.in_len(data_len);
 
-        if expected_in == 0 || data_len != expected_in || prev_out.len() != data_len {
+        // The operation in_len must never be zero as it is
+        // either statically or dynamically set
+        if expected_in == 0 || data_len != expected_in {
             return Err(PipeError::new(ErrorKind::InvalidInputSize));
         }
 
@@ -503,7 +526,7 @@ impl<T: TransformOp, S: Stage> Stage for Link<T, S, TMark> {
     }
 }
 
-impl<T: ElementOp, S: Stage> Stage for Link<T, S, EMark> {
+impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, EMark, T> {
     const IN_LEN: usize = S::OUT_LEN;
     const OUT_LEN: usize = S::OUT_LEN;
     const MAX_BUF_SIZE: usize = S::MAX_BUF_SIZE;
@@ -511,10 +534,10 @@ impl<T: ElementOp, S: Stage> Stage for Link<T, S, EMark> {
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        data: &[f32],
-        in_buf: &'i mut [f32],
-        out_buf: &'o mut [f32],
-    ) -> Result<&'o [f32], PipeError> {
+        data: &[T],
+        in_buf: &'i mut [T],
+        out_buf: &'o mut [T],
+    ) -> Result<&'o [T], PipeError> {
         let prev_out = self.prev_stage.execute(data, out_buf, in_buf)?;
         self.curr_op.setup();
 

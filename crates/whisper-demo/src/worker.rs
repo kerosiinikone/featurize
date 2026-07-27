@@ -364,12 +364,6 @@ impl Decoder {
         let single_channel_len = input_len / spec.channels as usize;
         let n_mels = self.model.config().num_mel_bins;
 
-        // // TODO: truncation constant needs to be known!
-        // let mut truncated = vec![0.0f32; single_channel_len];
-        // for i in 0..single_channel_len {
-        //     truncated[i] = data[i * spec.channels as usize];
-        // }
-
         const N_MEL: usize = 80;
         let mel_op = LogMelSpectrogram::<{ m::N_FFT }, { m::HOP_LENGTH }, N_MEL>::new(
             self.mel_filters.clone(),
@@ -387,10 +381,9 @@ impl Decoder {
 
         let mut pipe_exec = pipeline_normalize.build();
         let mut mel = vec![0.0f32; pipe_exec.output_len()];
-        pipe_exec.execute(&data, &mut mel);
+        let n = pipe_exec.execute(&data, &mut mel)?;
 
-        // Final tensor conversion, with shape (1, x, y)
-        let mel_len = mel.len();
+        let mel_len = n;
         let mel = Tensor::from_vec(mel, (1, n_mels, mel_len / n_mels), &device)?;
         let segments = self.run(&mel)?;
         Ok(segments)

@@ -25,13 +25,13 @@ impl Default for NanHandling {
 }
 
 #[inline(always)]
-pub fn check_finite(value: f32, handling: NanHandling) -> Result<f32, PipeError> {
+pub fn check_finite<T: num_traits::Float>(value: T, handling: NanHandling) -> Result<T, PipeError> {
     if value.is_finite() {
         Ok(value)
     } else {
         match handling {
             NanHandling::Fail => Err(PipeError::new(ErrorKind::NaN)),
-            NanHandling::Zero => Ok(0.0),
+            NanHandling::Zero => Ok(T::zero()),
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    errors::{NanHandling, PipeError, check_finite},
-    traits::{ElementOp, False, IsTrue, TransformOp, True},
+    errors::{check_finite, NanHandling, PipeError},
+    traits::{ElementOp, False, Float, IsTrue, TransformOp, True},
 };
 
 #[allow(unused_imports)]
@@ -9,25 +9,25 @@ use num_traits::Float as _;
 /// Normalize operation (point-wise)
 /// Normalizes by standard deviation and mean
 #[derive(Debug, Clone)]
-pub struct Normalize {
-    pub mean: f32,
-    pub std: f32,
+pub struct Normalize<T: Float = f32> {
+    pub mean: T,
+    pub std: T,
     pub nan_handling: NanHandling,
 }
 
-impl Default for Normalize {
+impl<T: Float> Default for Normalize<T> {
     fn default() -> Self {
         Self {
-            mean: 0.0,
-            std: 1.0,
+            mean: T::zero(),
+            std: T::one(),
             nan_handling: NanHandling::default(),
         }
     }
 }
 
-impl ElementOp for Normalize {
+impl<T: Float> ElementOp<T> for Normalize<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = (data - self.mean) / self.std;
         check_finite(result, self.nan_handling)
     }
@@ -35,23 +35,23 @@ impl ElementOp for Normalize {
 
 /// Division operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Div {
-    pub factor: f32,
+pub struct Div<T: Float = f32> {
+    pub factor: T,
     pub nan_handling: NanHandling,
 }
 
-impl Default for Div {
+impl<T: Float> Default for Div<T> {
     fn default() -> Self {
         Self {
-            factor: 1.0,
+            factor: T::one(),
             nan_handling: NanHandling::default(),
         }
     }
 }
 
-impl ElementOp for Div {
+impl<T: Float> ElementOp<T> for Div<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data / self.factor;
         check_finite(result, self.nan_handling)
     }
@@ -59,23 +59,23 @@ impl ElementOp for Div {
 
 /// Multiplication operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Multiply {
-    pub factor: f32,
+pub struct Multiply<T: Float = f32> {
+    pub factor: T,
     pub nan_handling: NanHandling,
 }
 
-impl Default for Multiply {
+impl<T: Float> Default for Multiply<T> {
     fn default() -> Self {
         Self {
-            factor: 1.0,
+            factor: T::one(),
             nan_handling: NanHandling::default(),
         }
     }
 }
 
-impl ElementOp for Multiply {
+impl<T: Float> ElementOp<T> for Multiply<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data * self.factor;
         check_finite(result, self.nan_handling)
     }
@@ -83,23 +83,23 @@ impl ElementOp for Multiply {
 
 /// Addition operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Add {
-    pub value: f32,
+pub struct Add<T: Float = f32> {
+    pub value: T,
     pub nan_handling: NanHandling,
 }
 
-impl Default for Add {
+impl<T: Float> Default for Add<T> {
     fn default() -> Self {
         Self {
-            value: 0.0,
+            value: T::zero(),
             nan_handling: NanHandling::default(),
         }
     }
 }
 
-impl ElementOp for Add {
+impl<T: Float> ElementOp<T> for Add<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data + self.value;
         check_finite(result, self.nan_handling)
     }
@@ -107,23 +107,23 @@ impl ElementOp for Add {
 
 /// Subtraction operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Subtract {
-    pub value: f32,
+pub struct Subtract<T: Float = f32> {
+    pub value: T,
     pub nan_handling: NanHandling,
 }
 
-impl Default for Subtract {
+impl<T: Float> Default for Subtract<T> {
     fn default() -> Self {
         Self {
-            value: 0.0,
+            value: T::zero(),
             nan_handling: NanHandling::default(),
         }
     }
 }
 
-impl ElementOp for Subtract {
+impl<T: Float> ElementOp<T> for Subtract<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data - self.value;
         check_finite(result, self.nan_handling)
     }
@@ -132,17 +132,15 @@ impl ElementOp for Subtract {
 /// Clamp operation (point-wise)
 /// Clamps values between min and max
 #[derive(Debug, Clone)]
-pub struct Clamp {
-    pub min: f32,
-    pub max: f32,
+pub struct Clamp<T: Float = f32> {
+    pub min: T,
+    pub max: T,
     pub nan_handling: NanHandling,
 }
 
-impl ElementOp for Clamp {
+impl<T: Float> ElementOp<T> for Clamp<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
-        // Clamp itself produces finite values if min/max are finite
-        // but input could be NaN/inf
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         if !data.is_finite() {
             check_finite(data, self.nan_handling)
         } else {
@@ -153,21 +151,23 @@ impl ElementOp for Clamp {
 
 /// Absolute value operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Abs {
+pub struct Abs<T: Float = f32> {
     pub nan_handling: NanHandling,
+    _phantom: core::marker::PhantomData<T>,
 }
 
-impl Default for Abs {
+impl<T: Float> Default for Abs<T> {
     fn default() -> Self {
         Self {
             nan_handling: NanHandling::default(),
+            _phantom: core::marker::PhantomData,
         }
     }
 }
 
-impl ElementOp for Abs {
+impl<T: Float> ElementOp<T> for Abs<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data.abs();
         check_finite(result, self.nan_handling)
     }
@@ -175,23 +175,23 @@ impl ElementOp for Abs {
 
 /// Power operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Pow {
-    pub exponent: f32,
+pub struct Pow<T: Float = f32> {
+    pub exponent: T,
     pub nan_handling: NanHandling,
 }
 
-impl Default for Pow {
+impl<T: Float> Default for Pow<T> {
     fn default() -> Self {
         Self {
-            exponent: 1.0,
+            exponent: T::one(),
             nan_handling: NanHandling::default(),
         }
     }
 }
 
-impl ElementOp for Pow {
+impl<T: Float> ElementOp<T> for Pow<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data.powf(self.exponent);
         check_finite(result, self.nan_handling)
     }
@@ -199,21 +199,23 @@ impl ElementOp for Pow {
 
 /// Square root operation (point-wise)
 #[derive(Debug, Clone)]
-pub struct Sqrt {
+pub struct Sqrt<T: Float = f32> {
     pub nan_handling: NanHandling,
+    _phantom: core::marker::PhantomData<T>,
 }
 
-impl Default for Sqrt {
+impl<T: Float> Default for Sqrt<T> {
     fn default() -> Self {
         Self {
             nan_handling: NanHandling::default(),
+            _phantom: core::marker::PhantomData,
         }
     }
 }
 
-impl ElementOp for Sqrt {
+impl<T: Float> ElementOp<T> for Sqrt<T> {
     #[inline(always)]
-    fn compute(&self, data: f32) -> Result<f32, PipeError> {
+    fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data.sqrt();
         check_finite(result, self.nan_handling)
     }
@@ -223,7 +225,9 @@ impl ElementOp for Sqrt {
 #[derive(Debug, Clone, Copy)]
 pub struct Truncate<const ORIGINAL_LEN: usize, const NEW_LEN: usize>;
 
-impl<const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp for Truncate<ORIGINAL_LEN, NEW_LEN> {
+impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
+    for Truncate<ORIGINAL_LEN, NEW_LEN>
+{
     type IndexRemapping = True;
 
     const IN_LEN: usize = ORIGINAL_LEN;
@@ -240,10 +244,10 @@ impl<const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp for Truncate<O
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         _: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         // TODO: n?
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), NEW_LEN);
@@ -256,7 +260,7 @@ impl<const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp for Truncate<O
 #[derive(Debug, Clone, Copy)]
 pub struct Transpose<const ROWS: usize, const COLS: usize>;
 
-impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS> {
+impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpose<ROWS, COLS> {
     type IndexRemapping = True;
 
     const IN_LEN: usize = ROWS * COLS;
@@ -273,18 +277,18 @@ impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS>
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
-        let in_index = self.map_index(out_index);
+    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        let in_index = <Transpose<ROWS, COLS> as TransformOp<T>>::map_index(self, out_index);
         Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         for out_index in 0..n {
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
@@ -296,12 +300,12 @@ impl<const ROWS: usize, const COLS: usize> TransformOp for Transpose<ROWS, COLS>
 
 /// Pad operation - adds padding to the data
 #[derive(Debug, Clone, Copy)]
-pub struct Pad<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> {
-    pub pad_value: f32,
+pub struct Pad<T: Float = f32, const ORIGINAL_LEN: usize = 0, const PADDED_LEN: usize = 0> {
+    pub pad_value: T,
 }
 
-impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp
-    for Pad<ORIGINAL_LEN, PADDED_LEN>
+impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T>
+    for Pad<T, ORIGINAL_LEN, PADDED_LEN>
 {
     type IndexRemapping = False;
 
@@ -309,7 +313,7 @@ impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp
     const OUT_LEN: usize = PADDED_LEN;
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
+    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         if out_index < ORIGINAL_LEN {
             Ok(unsafe { *data.get_unchecked(out_index) })
         } else {
@@ -320,10 +324,10 @@ impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         let copy_len = ORIGINAL_LEN.min(n);
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), copy_len);
@@ -342,7 +346,7 @@ impl<const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp
 #[derive(Debug, Clone, Copy)]
 pub struct Reverse<const LEN: usize>;
 
-impl<const LEN: usize> TransformOp for Reverse<LEN> {
+impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
     type IndexRemapping = True;
 
     const IN_LEN: usize = LEN;
@@ -357,18 +361,18 @@ impl<const LEN: usize> TransformOp for Reverse<LEN> {
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
-        let in_index = self.map_index(out_index);
+    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        let in_index = <Reverse<LEN> as TransformOp<T>>::map_index(self, out_index);
         Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], PipeError> {
+    ) -> Result<&'o mut [T], PipeError> {
         for out_index in 0..n {
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;

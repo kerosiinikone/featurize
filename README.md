@@ -1,2 +1,2 @@
 # featurize
-WASM
+WASM Inference

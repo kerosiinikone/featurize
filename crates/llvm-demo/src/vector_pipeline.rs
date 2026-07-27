@@ -22,9 +22,7 @@ fn main() {
             value: 1.0,
             ..Default::default()
         })
-        .apply_point(Abs {
-            ..Default::default()
-        })
+        .apply_point(Abs::default())
         .apply_point(Pow {
             exponent: 0.5,
             ..Default::default()
@@ -35,12 +33,6 @@ fn main() {
         })
         .build();
 
-    // let output_size = pipe.output_len();
-    // let mut output = vec![0.0f32; output_size];
-    //
-    // pipe.execute(&input_data, &mut output);
-
-    // println!("Vector Pipeline Demo");
-    // println!("  output = {:?}", output);
-    // println!("  input = {:?}", input_data);
+    let mut output = vec![0.0f32; VECTOR_LEN];
+    pipe.execute(&input_data, &mut output).unwrap();
 }

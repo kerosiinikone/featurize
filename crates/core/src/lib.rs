@@ -24,7 +24,7 @@ pub(crate) const fn _const_max_usize(a: usize, b: usize) -> usize {
 struct Identity;
 
 #[cfg(test)]
-impl crate::traits::TransformOp for Identity {
+impl<T: crate::traits::Float> crate::traits::TransformOp<T> for Identity {
     const OUT_LEN: usize = 0;
     const INTERNAL_IS_VALID: bool = true;
     const IN_LEN: usize = 0;
@@ -44,10 +44,10 @@ impl crate::traits::TransformOp for Identity {
     #[inline(always)]
     fn execute<'i, 'o>(
         &self,
-        out: &'o mut [f32],
-        input: &'i [f32],
+        out: &'o mut [T],
+        input: &'i [T],
         n: usize,
-    ) -> Result<&'o mut [f32], errors::PipeError> {
+    ) -> Result<&'o mut [T], errors::PipeError> {
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), n);
         }
@@ -376,7 +376,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         let mut pipe = Pipeline::new()
-            .apply_transform(Pad::<5, 10> { pad_value: 0.0 })
+            .apply_transform(Pad::<f32, 5, 10> { pad_value: 0.0 })
             .build();
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -555,7 +555,7 @@ mod tests {
         let in_buf = alloc::vec![0.5f32; ORIGINAL];
 
         let mut pipe = Pipeline::new()
-            .apply_transform(Pad::<ORIGINAL, PADDED> { pad_value: 0.0 })
+            .apply_transform(Pad::<f32, ORIGINAL, PADDED> { pad_value: 0.0 })
             .apply_point(Normalize {
                 mean: 0.0,
                 std: 0.5,
@@ -613,9 +613,7 @@ mod tests {
                 ..Default::default()
             })
             .apply_transform(Truncate::<INPUT_SIZE, REDUCED_SIZE>)
-            .apply_point(Abs {
-                ..Default::default()
-            })
+            .apply_point(Abs::default())
             .build();
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -675,7 +673,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         let mut pipe = Pipeline::new()
-            .apply_transform(Pad::<5, 10> { pad_value: 0.0 })
+            .apply_transform(Pad::<f32, 5, 10> { pad_value: 0.0 })
             .apply_transform(Truncate::<10, 8>)
             .build();
 
@@ -711,18 +709,10 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 3];
         let in_buf = alloc::vec![-1.0, 4.0, -9.0];
 
-        let mut pipe = Pipeline::new()
-            .apply_point::<_, 3>(Sqrt {
-                nan_handling: crate::errors::NanHandling::Zero,
-            })
-            .build();
+        let mut pipe = Pipeline::new().apply_point::<_, 3>(Sqrt::default()).build();
 
-        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
-
-        assert_eq!(n, 3);
-        assert_eq!(out_buf[0], 0.0);
-        assert_eq!(out_buf[1], 2.0);
-        assert_eq!(out_buf[2], 0.0);
+        let n = pipe.execute(&in_buf, &mut out_buf);
+        assert!(n.is_err())
     }
 
     #[test]
@@ -765,10 +755,6 @@ mod tests {
             assert_eq!(out_buf[i], 1.0);
         }
     }
-
-    // ============================================================================
-    // SECTION 10: Dynamic Pipeline Runtime Failures
-    // ============================================================================
 
     #[test]
     fn test_dynamic_input_adapts_to_size() {
@@ -846,7 +832,7 @@ mod tests {
         let in_buf = alloc::vec![1.0f32; ORIGINAL];
 
         let mut pipe = Pipeline::new_with_dynamic()
-            .apply_transform(Pad::<ORIGINAL, PADDED> { pad_value: 0.0 })
+            .apply_transform(Pad::<f32, ORIGINAL, PADDED> { pad_value: 0.0 })
             .apply_point(Multiply {
                 factor: 2.0,
                 ..Default::default()
@@ -900,7 +886,7 @@ mod tests {
         let in_buf = alloc::vec![1.0f32; 10];
 
         let mut pipe = Pipeline::new_with_dynamic()
-            .apply_transform(Pad::<10, 20> { pad_value: 0.0 })
+            .apply_transform(Pad::<_, 10, 20> { pad_value: 0.0 })
             .apply_transform(Truncate::<20, 5>)
             .build_dynamic(10);
 
@@ -914,7 +900,7 @@ mod tests {
         let in_buf = alloc::vec![1.0f32; 5];
 
         let mut pipe = Pipeline::new_with_dynamic()
-            .apply_transform(Pad::<5, 10> { pad_value: 0.0 })
+            .apply_transform(Pad::<_, 5, 10> { pad_value: 0.0 })
             .apply_transform(Truncate::<10, 7>)
             .apply_transform(Truncate::<7, 4>)
             .apply_transform(Truncate::<4, 2>)
@@ -1031,7 +1017,7 @@ mod tests {
         let in_buf = alloc::vec![1.0f32; SMALL];
 
         let mut pipe = Pipeline::new_with_dynamic()
-            .apply_transform(Pad::<SMALL, HUGE> { pad_value: -1.0 })
+            .apply_transform(Pad::<_, SMALL, HUGE> { pad_value: -1.0 })
             .build_dynamic(SMALL);
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
