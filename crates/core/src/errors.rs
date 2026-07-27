@@ -4,11 +4,15 @@ use core::{
     fmt::{Debug, Display},
 };
 
+/// Error kinds that can occur during pipeline execution
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ErrorKind {
+    /// Input size doesn't match expected size
     InvalidInputSize,
+    /// Output buffer is too small
     InvalidOutputSize,
+    /// NaN or infinity encountered
     NaN,
 }
 
@@ -39,17 +43,12 @@ pub fn check_finite<T: num_traits::Float>(value: T, handling: NanHandling) -> Re
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PipeError {
     kind: ErrorKind,
-    // Snapshot of the pipe (with a Display impl?)
-    // stages: Option<S>,
-    // TODO: CONTEXT
-    // SNAPSHOT of the stage (wrapper)
-    // source: Option<Box<dyn error::Error + Send + Sync>>,
+    // SNAPSHOT of the stage (wrapper) -> impl Stage
+    snapshot: Option<String>,
     message: Option<String>,
-    // TODO
     // backtrace: Option<backtrace::Backtrace>
 }
 
-// TODO: match type
 impl Display for PipeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", "PipeError")
@@ -62,9 +61,16 @@ impl PipeError {
     pub fn new(kind: ErrorKind) -> PipeError {
         Self {
             kind,
-            // stages: None,
-            // source: None,
             message: None,
+            snapshot: None,
+        }
+    }
+
+    pub fn new_with_snapshot(kind: ErrorKind, snapshot: String) -> PipeError {
+        Self {
+            kind,
+            message: None,
+            snapshot: Some(snapshot),
         }
     }
 

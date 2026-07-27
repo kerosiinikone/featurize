@@ -365,7 +365,7 @@ impl Decoder {
         let n_mels = self.model.config().num_mel_bins;
 
         const N_MEL: usize = 80;
-        let mel_op = LogMelSpectrogram::<{ m::N_FFT }, { m::HOP_LENGTH }, N_MEL>::new(
+        let mel_op = crate::mel_spectrogram::LogMelSpectrogram::<{ m::N_FFT }, { m::HOP_LENGTH }, N_MEL>::new(
             self.mel_filters.clone(),
             false,
             m::CHUNK_LENGTH,

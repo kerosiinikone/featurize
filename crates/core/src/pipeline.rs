@@ -1,12 +1,12 @@
 use crate::{
     errors::PipeError,
     traits::{
-        EMark, ElementElement, ElementOp, Float, Fused, Head, IndexRemappable, IsTrue, Link, Stage,
-        TMark, TransformElement, TransformOp, TransformTransform,
+        Element, ElementElement, ElementOp, Float, Fused, Head, IndexRemappable, IsTrue, Link,
+        Stage, Transform, TransformElement, TransformOp, TransformTransform,
     },
 };
 
-// Check exports!
+/// Markers for pipeline type - internal use only
 pub struct Static;
 pub struct Dynamic;
 
@@ -26,11 +26,12 @@ where
 {
     // Pipe typestate
     // Accessing the underlying T -> helper methods
-    stages: T,
-    marker: core::marker::PhantomData<(State, F)>,
+    pub(crate) stages: T,
+    pub(crate) marker: core::marker::PhantomData<(State, F)>,
     // Options
 }
 
+/// Executable pipeline with allocated buffers
 #[derive(Debug, Default, Clone)]
 pub struct PipeExec<T, F = f32>
 where
@@ -39,14 +40,14 @@ where
 {
     // Pipe typestate
     // Accessing the underlying T -> helper methods
-    stages: T,
+    pub(crate) stages: T,
     // Options
     // Input data parameters
     #[allow(dead_code)]
-    max_expected_input_length: Option<usize>,
+    pub(crate) max_expected_input_length: Option<usize>,
     // These are allocated only at the build stage
-    in_buf: alloc::boxed::Box<[F]>,
-    out_buf: alloc::boxed::Box<[F]>,
+    pub(crate) in_buf: alloc::boxed::Box<[F]>,
+    pub(crate) out_buf: alloc::boxed::Box<[F]>,
 }
 
 impl Pipeline {
@@ -75,16 +76,16 @@ impl Pipeline {
     }
 }
 
-/// Static pipeline initializer
+/// Static pipeline initializer - internal use only
 #[derive(Debug, Default, Clone)]
 pub struct PipelineStatic<F: Float = f32> {
-    marker: core::marker::PhantomData<(Static, F)>,
+    pub(crate) marker: core::marker::PhantomData<(Static, F)>,
 }
 
-/// Dynamic pipeline initializer
+/// Dynamic pipeline initializer - internal use only
 #[derive(Debug, Default, Clone)]
 pub struct PipelineDynamic<F: Float = f32> {
-    marker: core::marker::PhantomData<(Dynamic, F)>,
+    pub(crate) marker: core::marker::PhantomData<(Dynamic, F)>,
 }
 
 impl<F: Float> PipelineStatic<F> {
@@ -92,7 +93,7 @@ impl<F: Float> PipelineStatic<F> {
     pub fn apply_point<T, const INPUT_LEN: usize>(
         self,
         op: T,
-    ) -> Pipe<Head<T, EMark, INPUT_LEN>, F, Static>
+    ) -> Pipe<Head<T, Element, INPUT_LEN>, F, Static>
     where
         T: ElementOp<F>,
     {
@@ -106,7 +107,7 @@ impl<F: Float> PipelineStatic<F> {
     }
     /// Creates the initialized pipe implicitly (with size implied -> transform operation must be
     /// static!)
-    pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, TMark>, F, Static>
+    pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, Transform>, F, Static>
     where
         T: TransformOp<F>,
     {
@@ -126,7 +127,7 @@ impl<F: Float> PipelineStatic<F> {
 
 impl<F: Float> PipelineDynamic<F> {
     /// Creates the initialized pipe implicitly
-    pub fn apply_point<T>(self, op: T) -> Pipe<Head<T, EMark>, F, Dynamic>
+    pub fn apply_point<T>(self, op: T) -> Pipe<Head<T, Element>, F, Dynamic>
     where
         T: ElementOp<F>,
     {
@@ -140,7 +141,7 @@ impl<F: Float> PipelineDynamic<F> {
     }
 
     /// Creates the initialized pipe implicitly
-    pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, TMark>, F, Dynamic>
+    pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, Transform>, F, Dynamic>
     where
         T: TransformOp<F>,
     {
@@ -219,7 +220,7 @@ where
     }
 }
 
-impl<T, F, const INPUT_LEN: usize, State> Pipe<Head<T, EMark, INPUT_LEN>, F, State>
+impl<T, F, const INPUT_LEN: usize, State> Pipe<Head<T, Element, INPUT_LEN>, F, State>
 where
     T: ElementOp<F>,
     F: Float,
@@ -227,7 +228,7 @@ where
     pub fn apply_point<U>(
         self,
         op: U,
-    ) -> Pipe<Head<Fused<T, U, ElementElement>, EMark, INPUT_LEN>, F, State>
+    ) -> Pipe<Head<Fused<T, U, ElementElement>, Element, INPUT_LEN>, F, State>
     where
         U: ElementOp<F>,
     {
@@ -245,7 +246,7 @@ where
     pub fn apply_transform<U>(
         self,
         op: U,
-    ) -> Pipe<Head<Fused<U, T, TransformElement>, TMark, INPUT_LEN>, F, State>
+    ) -> Pipe<Head<Fused<U, T, TransformElement>, Transform, INPUT_LEN>, F, State>
     where
         U: TransformOp<F>,
     {
@@ -264,7 +265,7 @@ where
     }
 }
 
-impl<T, F, const INPUT_LEN: usize, State> Pipe<Head<T, TMark, INPUT_LEN>, F, State>
+impl<T, F, const INPUT_LEN: usize, State> Pipe<Head<T, Transform, INPUT_LEN>, F, State>
 where
     T: TransformOp<F>,
     F: Float,
@@ -272,7 +273,7 @@ where
     pub fn apply_point<U>(
         self,
         op: U,
-    ) -> Pipe<Head<Fused<T, U, TransformElement>, TMark, INPUT_LEN>, F, State>
+    ) -> Pipe<Head<Fused<T, U, TransformElement>, Transform, INPUT_LEN>, F, State>
     where
         U: ElementOp<F>,
     {
@@ -290,7 +291,7 @@ where
     pub fn apply_transform<U>(
         self,
         op: U,
-    ) -> Pipe<Link<U, Head<T, TMark, INPUT_LEN>, TMark, F>, F, State>
+    ) -> Pipe<Link<U, Head<T, Transform, INPUT_LEN>, Transform, F>, F, State>
     where
         U: TransformOp<F>,
     {
@@ -315,7 +316,7 @@ where
     }
 }
 
-impl<T, F, const INPUT_LEN: usize, State> Pipe<Head<T, TMark, INPUT_LEN>, F, State>
+impl<T, F, const INPUT_LEN: usize, State> Pipe<Head<T, Transform, INPUT_LEN>, F, State>
 where
     T: TransformOp<F> + IndexRemappable<F>,
     T::IndexRemapping: IsTrue,
@@ -324,7 +325,7 @@ where
     pub fn apply_transform_fusable<U>(
         self,
         op: U,
-    ) -> Pipe<Head<Fused<T, U, TransformTransform>, TMark, INPUT_LEN>, F, State>
+    ) -> Pipe<Head<Fused<T, U, TransformTransform>, Transform, INPUT_LEN>, F, State>
     where
         U: TransformOp<F>,
         U::IndexRemapping: IsTrue,
@@ -348,13 +349,13 @@ where
     }
 }
 
-impl<T, S, F, State> Pipe<Link<T, S, EMark, F>, F, State>
+impl<T, S, F, State> Pipe<Link<T, S, Element, F>, F, State>
 where
     T: ElementOp<F>,
     S: Stage<F>,
     F: Float,
 {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, EMark, F>, F, State>
+    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, Element, F>, F, State>
     where
         U: ElementOp<F>,
     {
@@ -374,12 +375,11 @@ where
     pub fn apply_transform<U>(
         self,
         op: U,
-    ) -> Pipe<Link<Fused<U, T, TransformElement>, S, TMark, F>, F, State>
+    ) -> Pipe<Link<Fused<U, T, TransformElement>, S, Transform, F>, F, State>
     where
         U: TransformOp<F>,
     {
         const {
-            // TODO: make sure the prev stage check is correct
             assert!(
                 U::INTERNAL_IS_VALID
                     && (S::OUT_LEN == U::IN_LEN || S::OUT_LEN == 0 || U::IN_LEN == 0),
@@ -400,7 +400,7 @@ where
     }
 }
 
-impl<T, S, F, State> Pipe<Link<T, S, TMark, F>, F, State>
+impl<T, S, F, State> Pipe<Link<T, S, Transform, F>, F, State>
 where
     T: TransformOp<F>,
     S: Stage<F>,
@@ -409,7 +409,7 @@ where
     pub fn apply_point<U>(
         self,
         op: U,
-    ) -> Pipe<Link<Fused<T, U, TransformElement>, S, TMark, F>, F, State>
+    ) -> Pipe<Link<Fused<T, U, TransformElement>, S, Transform, F>, F, State>
     where
         U: ElementOp<F>,
     {
@@ -429,7 +429,7 @@ where
     pub fn apply_transform<U>(
         self,
         op: U,
-    ) -> Pipe<Link<U, Link<T, S, TMark, F>, TMark, F>, F, State>
+    ) -> Pipe<Link<U, Link<T, S, Transform, F>, Transform, F>, F, State>
     where
         U: TransformOp<F>,
     {
@@ -454,7 +454,7 @@ where
     }
 }
 
-impl<T, S, F, State> Pipe<Link<T, S, TMark, F>, F, State>
+impl<T, S, F, State> Pipe<Link<T, S, Transform, F>, F, State>
 where
     T: TransformOp<F> + IndexRemappable<F>,
     T::IndexRemapping: IsTrue,
@@ -464,7 +464,7 @@ where
     pub fn apply_transform_fusable<U>(
         self,
         op: U,
-    ) -> Pipe<Link<Fused<T, U, TransformTransform>, S, TMark, F>, F, State>
+    ) -> Pipe<Link<Fused<T, U, TransformTransform>, S, Transform, F>, F, State>
     where
         U: TransformOp<F>,
         U::IndexRemapping: IsTrue,

@@ -85,6 +85,10 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
         };
         check_finite(luminance, self.nan_handling)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Grayscale"
+    }
 }
 
 /// 2D Scale operation for images
@@ -146,6 +150,10 @@ impl<
 
         Ok(unsafe { *data.get_unchecked(in_idx) })
     }
+
+    fn op_name(&self) -> &'static str {
+        "Scale2D"
+    }
 }
 
 /// Crop operation for images
@@ -197,16 +205,16 @@ impl<
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        // if input.len() != IN_W * IN_H * IN_C {
-        //     return Err(PipeError::new(ErrorKind::InvalidInputSize));
-        // }
-
         for out_index in 0..n {
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
         }
         Ok(out)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Crop"
     }
 }
 
@@ -249,6 +257,10 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
         }
         Ok(out)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Rotate90"
+    }
 }
 
 /// Flip horizontal operation
@@ -290,6 +302,10 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
         }
         Ok(out)
     }
+
+    fn op_name(&self) -> &'static str {
+        "FlipHorizontal"
+    }
 }
 
 /// Flip vertical operation
@@ -330,5 +346,9 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertica
             }
         }
         Ok(out)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "FlipVertical"
     }
 }

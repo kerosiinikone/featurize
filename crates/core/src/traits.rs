@@ -8,7 +8,6 @@ pub trait Float: num_traits::Float + num_traits::FloatConst + Default + Copy + '
 impl Float for f32 {}
 impl Float for f64 {}
 
-/// Link<Head<RootOp>, PipeOp>
 /// The pipeline wrapper encloses these 'stages'
 pub trait Stage<T: Float = f32> {
     const IN_LEN: usize;
@@ -22,6 +21,9 @@ pub trait Stage<T: Float = f32> {
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError>;
 
+    /// Internal -> use with errors for better context
+    fn snapshot(&self) -> alloc::string::String;
+
     /// Computes the maximum buffer size dynamically
     fn max_buf_size_dynamic(&self, input_len: usize) -> usize;
 
@@ -30,29 +32,28 @@ pub trait Stage<T: Float = f32> {
     fn out_len_dynamic(&self, input_len: usize) -> usize;
 }
 
-/// Stage marks (curr op)
-// TODO: rename!
-pub struct TMark;
-pub struct EMark;
+/// Stage marks (curr op) - internal use only
+pub struct Transform;
+pub struct Element;
 
-/// Generic over the root operation
+/// Generic over the root operation - internal use only
 pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
-    pub root_op: T,
-    pub marker: core::marker::PhantomData<Mark>,
+    pub(crate) root_op: T,
+    pub(crate) marker: core::marker::PhantomData<Mark>,
 }
 
 // TODO: simplify the type signature!
-/// Generic over the previous stage, current operation
+/// Generic over the previous stage, current operation - internal use only
 pub struct Link<T, S, Mark, F>
 where
     F: Float,
     S: Stage<F>,
 {
-    pub prev_stage: S,
-    pub curr_op: T,
-    pub marker: core::marker::PhantomData<Mark>,
+    pub(crate) prev_stage: S,
+    pub(crate) curr_op: T,
+    pub(crate) marker: core::marker::PhantomData<Mark>,
     // !!!
-    pub _float_marker: core::marker::PhantomData<F>,
+    pub(crate) _float_marker: core::marker::PhantomData<F>,
 }
 
 /// Point-wise operations that work on individual elements
@@ -64,6 +65,11 @@ pub trait ElementOp<T: Float = f32> {
     /// Get the NaN handling policy for this operation
     fn nan_handling(&self) -> NanHandling {
         NanHandling::Fail
+    }
+
+    /// Get the name of this operation for error context
+    fn op_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
     }
 
     #[inline(always)]
@@ -93,7 +99,7 @@ pub trait ElementOp<T: Float = f32> {
     }
 }
 
-// Associated types
+// Associated types - internal use only
 pub struct True;
 pub struct False;
 pub trait IsTrue {}
@@ -114,6 +120,11 @@ pub trait TransformOp<T: Float = f32> {
     /// Get the NaN handling policy for this operation
     fn nan_handling(&self) -> NanHandling {
         NanHandling::Fail
+    }
+
+    /// Get the name of this operation for error context
+    fn op_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
     }
 
     /// Map output index to input index (for pure index-remapping operations)
@@ -204,17 +215,17 @@ pub type PipelineStatic64 = crate::pipeline::PipelineStatic<f64>;
 pub type PipelineDynamic32 = crate::pipeline::PipelineDynamic<f32>;
 pub type PipelineDynamic64 = crate::pipeline::PipelineDynamic<f64>;
 
-/// Markers for assuring typestate
+/// Markers for assuring typestate - internal use only
 pub struct ElementElement;
 pub struct TransformTransform;
 pub struct TransformElement;
 
 /// Generic over the previous operation and current
-/// Allows for fusing the operations
+/// Allows for fusing the operations - internal use only
 #[derive(Debug, Clone, Copy)]
 pub struct Fused<T, S, FusedState = ElementElement> {
-    pub prev_op: T,
-    pub curr_op: S,
+    pub(crate) prev_op: T,
+    pub(crate) curr_op: S,
 
     marker: core::marker::PhantomData<FusedState>,
 }
@@ -224,6 +235,10 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> ElementOp<T> for Fused<U, S, El
     fn compute(&self, data: T) -> Result<T, PipeError> {
         let prev = self.prev_op.compute(data)?;
         self.curr_op.compute(prev)
+    }
+
+    fn op_name(&self) -> &'static str {
+        self.curr_op.op_name()
     }
 }
 
@@ -250,6 +265,10 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> TransformOp<T> for Fused<U, S, 
             }
         }
         Ok(out)
+    }
+
+    fn op_name(&self) -> &'static str {
+        self.curr_op.op_name()
     }
 }
 
@@ -291,6 +310,10 @@ impl<T: Float, U: TransformOp<T>, S: ElementOp<T>> TransformOp<T>
     #[inline(always)]
     fn out_len(&self, default_len: usize) -> usize {
         self.prev_op.out_len(default_len)
+    }
+
+    fn op_name(&self) -> &'static str {
+        self.curr_op.op_name()
     }
 }
 
@@ -345,9 +368,13 @@ where
     fn out_len(&self, default_len: usize) -> usize {
         self.curr_op.out_len(default_len)
     }
+
+    fn op_name(&self) -> &'static str {
+        self.curr_op.op_name()
+    }
 }
 
-impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, EMark, INPUT_LEN> {
+impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Element, INPUT_LEN> {
     const IN_LEN: usize = INPUT_LEN;
     const OUT_LEN: usize = INPUT_LEN;
     const MAX_BUF_SIZE: usize = INPUT_LEN;
@@ -371,11 +398,17 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, EMa
         };
 
         if exec_len != data.len() {
-            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidInputSize,
+                self.snapshot(),
+            ));
         }
 
         if out_len < exec_len {
-            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidOutputSize,
+                self.snapshot(),
+            ));
         }
 
         for i in 0..exec_len {
@@ -384,6 +417,11 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, EMa
             }
         }
         Ok(&out_buf[..exec_len])
+    }
+
+    #[inline(always)]
+    fn snapshot(&self) -> alloc::string::String {
+        alloc::format!("Head<{}>", self.root_op.op_name())
     }
 
     #[inline(always)]
@@ -405,7 +443,9 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, EMa
     }
 }
 
-impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, TMark, INPUT_LEN> {
+impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
+    for Head<U, Transform, INPUT_LEN>
+{
     const IN_LEN: usize = U::IN_LEN;
     const OUT_LEN: usize = U::OUT_LEN;
     const MAX_BUF_SIZE: usize = _const_max_usize(INPUT_LEN, U::OUT_LEN);
@@ -425,7 +465,10 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, T
 
         // Runtime guardrail, optimized if the last operation was dynamic
         if data.len() != data_len {
-            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidInputSize,
+                self.snapshot(),
+            ));
         }
 
         let expected_in = self.root_op.in_len(data_len);
@@ -433,7 +476,10 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, T
         // The operation in_len must never be zero as it is
         // either statically or dynamically set
         if expected_in == 0 || data_len != expected_in {
-            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidInputSize,
+                self.snapshot(),
+            ));
         }
 
         let out_len = if Self::OUT_LEN > 0 {
@@ -444,11 +490,19 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, T
         let n = self.root_op.out_len(data_len);
 
         if n == 0 || out_len < n {
-            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidOutputSize,
+                self.snapshot(),
+            ));
         }
 
         let out = &mut out_buf[0..n];
         Ok(self.root_op.execute(out, data, n)?)
+    }
+
+    #[inline(always)]
+    fn snapshot(&self) -> alloc::string::String {
+        alloc::format!("Head<{}>", self.root_op.op_name())
     }
 
     #[inline(always)]
@@ -462,7 +516,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, T
     }
 }
 
-impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, TMark, T> {
+impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform, T> {
     const IN_LEN: usize = S::OUT_LEN;
     const OUT_LEN: usize = U::OUT_LEN;
     const MAX_BUF_SIZE: usize = _const_max_usize(S::MAX_BUF_SIZE, U::OUT_LEN);
@@ -485,7 +539,10 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, TMark, T>
 
         // Runtime guardrail, optimized if the last operation was dynamic
         if prev_out.len() != data_len {
-            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidInputSize,
+                self.snapshot(),
+            ));
         }
 
         let expected_in = self.curr_op.in_len(data_len);
@@ -493,7 +550,10 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, TMark, T>
         // The operation in_len must never be zero as it is
         // either statically or dynamically set
         if expected_in == 0 || data_len != expected_in {
-            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidInputSize,
+                self.snapshot(),
+            ));
         }
 
         let out_len = if Self::OUT_LEN > 0 {
@@ -504,11 +564,19 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, TMark, T>
         let n = self.curr_op.out_len(data_len);
 
         if n == 0 || out_len < n {
-            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidOutputSize,
+                self.snapshot(),
+            ));
         }
 
         let out = &mut out_buf[0..n];
         Ok(self.curr_op.execute(out, prev_out, n)?)
+    }
+
+    #[inline(always)]
+    fn snapshot(&self) -> alloc::string::String {
+        alloc::format!("Link<{}>", self.curr_op.op_name())
     }
 
     #[inline(always)]
@@ -526,7 +594,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, TMark, T>
     }
 }
 
-impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, EMark, T> {
+impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T> {
     const IN_LEN: usize = S::OUT_LEN;
     const OUT_LEN: usize = S::OUT_LEN;
     const MAX_BUF_SIZE: usize = S::MAX_BUF_SIZE;
@@ -549,7 +617,10 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, EMark, T> {
         let n = prev_out.len();
 
         if out_len < n {
-            return Err(PipeError::new(ErrorKind::InvalidOutputSize));
+            return Err(PipeError::new_with_snapshot(
+                ErrorKind::InvalidOutputSize,
+                self.snapshot(),
+            ));
         }
 
         for i in 0..n {
@@ -558,6 +629,11 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, EMark, T> {
             }
         }
         Ok(&out_buf[..n])
+    }
+
+    #[inline(always)]
+    fn snapshot(&self) -> alloc::string::String {
+        alloc::format!("Link<{}>", self.curr_op.op_name())
     }
 
     #[inline(always)]

@@ -1,9 +1,4 @@
-use crate::{
-    errors::{check_finite, NanHandling, PipeError},
-    traits::{False, TransformOp},
-};
-use alloc::vec;
-use alloc::vec::Vec;
+use featurize_core::{errors::{NanHandling, check_finite}, prelude::*};
 
 #[allow(unused_imports)]
 use num_traits::Float as _;
@@ -258,6 +253,7 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
     }
 }
 
+// TODO: in_len and out_len
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformOp
     for LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {

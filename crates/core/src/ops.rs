@@ -31,6 +31,10 @@ impl<T: Float> ElementOp<T> for Normalize<T> {
         let result = (data - self.mean) / self.std;
         check_finite(result, self.nan_handling)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Normalize"
+    }
 }
 
 /// Division operation (point-wise)
@@ -54,6 +58,10 @@ impl<T: Float> ElementOp<T> for Div<T> {
     fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data / self.factor;
         check_finite(result, self.nan_handling)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Div"
     }
 }
 
@@ -79,6 +87,10 @@ impl<T: Float> ElementOp<T> for Multiply<T> {
         let result = data * self.factor;
         check_finite(result, self.nan_handling)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Multiply"
+    }
 }
 
 /// Addition operation (point-wise)
@@ -102,6 +114,10 @@ impl<T: Float> ElementOp<T> for Add<T> {
     fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data + self.value;
         check_finite(result, self.nan_handling)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Add"
     }
 }
 
@@ -127,6 +143,10 @@ impl<T: Float> ElementOp<T> for Subtract<T> {
         let result = data - self.value;
         check_finite(result, self.nan_handling)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Subtract"
+    }
 }
 
 /// Clamp operation (point-wise)
@@ -146,6 +166,10 @@ impl<T: Float> ElementOp<T> for Clamp<T> {
         } else {
             Ok(data.clamp(self.min, self.max))
         }
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Clamp"
     }
 }
 
@@ -171,6 +195,10 @@ impl<T: Float> ElementOp<T> for Abs<T> {
         let result = data.abs();
         check_finite(result, self.nan_handling)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Abs"
+    }
 }
 
 /// Power operation (point-wise)
@@ -195,6 +223,10 @@ impl<T: Float> ElementOp<T> for Pow<T> {
         let result = data.powf(self.exponent);
         check_finite(result, self.nan_handling)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Pow"
+    }
 }
 
 /// Square root operation (point-wise)
@@ -218,6 +250,10 @@ impl<T: Float> ElementOp<T> for Sqrt<T> {
     fn compute(&self, data: T) -> Result<T, PipeError> {
         let result = data.sqrt();
         check_finite(result, self.nan_handling)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Sqrt"
     }
 }
 
@@ -253,6 +289,10 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), NEW_LEN);
         }
         Ok(out)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Truncate"
     }
 }
 
@@ -295,6 +335,10 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
             }
         }
         Ok(out)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Transpose"
     }
 }
 
@@ -340,6 +384,10 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
         }
         Ok(out)
     }
+
+    fn op_name(&self) -> &'static str {
+        "Pad"
+    }
 }
 
 /// Reverse operation - reverses the order of elements
@@ -379,5 +427,9 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
             }
         }
         Ok(out)
+    }
+
+    fn op_name(&self) -> &'static str {
+        "Reverse"
     }
 }
