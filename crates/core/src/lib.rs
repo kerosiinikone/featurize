@@ -8,6 +8,7 @@ pub mod ops;
 pub mod pipeline;
 pub mod prelude;
 pub mod traits;
+pub mod tensors;
 
 pub const DYNAMIC_SIZE: usize = 0;
 

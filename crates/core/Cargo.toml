@@ -3,8 +3,13 @@ name = "featurize-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+burn = ["dep:burn"]
+
 [dependencies]
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
+burn = { version = "0.21.0", default-features = false, optional = true }
 
 [dev-dependencies]
 trybuild = "1.0"

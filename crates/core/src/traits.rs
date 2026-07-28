@@ -42,7 +42,6 @@ pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
     pub(crate) marker: core::marker::PhantomData<Mark>,
 }
 
-// TODO: simplify the type signature!
 /// Generic over the previous stage, current operation - internal use only
 pub struct Link<T, S, Mark, F>
 where
@@ -99,7 +98,7 @@ pub trait ElementOp<T: Float = f32> {
     }
 }
 
-// Associated types - internal use only
+// Associated types
 pub struct True;
 pub struct False;
 pub trait IsTrue {}
