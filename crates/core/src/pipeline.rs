@@ -7,7 +7,9 @@ use crate::{
 };
 
 /// Markers for pipeline type - internal use only
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Static;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Dynamic;
 
 /// Initializer
@@ -32,6 +34,8 @@ where
 }
 
 /// Executable pipeline with allocated buffers
+///
+/// TODO: why do internal scratch buffers exist, etc?
 #[derive(Debug, Default, Clone)]
 pub struct PipeExec<T, F = f32>
 where
@@ -50,47 +54,37 @@ where
     pub(crate) out_buf: alloc::boxed::Box<[F]>,
 }
 
+/// Must be documented why the pipeline struct constructors
+/// return a different type with each method.
 impl Pipeline {
-    pub fn new() -> PipelineStatic<f32> {
+    pub fn new<T: Float>() -> PipelineStatic<T> {
         PipelineStatic {
-            marker: core::marker::PhantomData {},
+            marker: core::marker::PhantomData,
         }
     }
 
-    pub fn new_with_dynamic() -> PipelineDynamic<f32> {
+    pub fn with_dynamic<T: Float>() -> PipelineDynamic<T> {
         PipelineDynamic {
-            marker: core::marker::PhantomData {},
-        }
-    }
-
-    pub fn new_f64() -> PipelineStatic<f64> {
-        PipelineStatic {
-            marker: core::marker::PhantomData {},
-        }
-    }
-
-    pub fn new_with_dynamic_f64() -> PipelineDynamic<f64> {
-        PipelineDynamic {
-            marker: core::marker::PhantomData {},
+            marker: core::marker::PhantomData,
         }
     }
 }
 
 /// Static pipeline initializer - internal use only
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PipelineStatic<F: Float = f32> {
     pub(crate) marker: core::marker::PhantomData<(Static, F)>,
 }
 
 /// Dynamic pipeline initializer - internal use only
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PipelineDynamic<F: Float = f32> {
     pub(crate) marker: core::marker::PhantomData<(Dynamic, F)>,
 }
 
 impl<F: Float> PipelineStatic<F> {
     /// Creates the initialized pipe implicitly (with size)
-    pub fn apply_point<T, const INPUT_LEN: usize>(
+    pub fn apply_element<T, const INPUT_LEN: usize>(
         self,
         op: T,
     ) -> Pipe<Head<T, Element, INPUT_LEN>, F, Static>
@@ -131,7 +125,7 @@ impl<F: Float> PipelineStatic<F> {
 
 impl<F: Float> PipelineDynamic<F> {
     /// Creates the initialized pipe implicitly
-    pub fn apply_point<T>(self, op: T) -> Pipe<Head<T, Element>, F, Dynamic>
+    pub fn apply_element<T>(self, op: T) -> Pipe<Head<T, Element>, F, Dynamic>
     where
         T: ElementOp<F>,
     {
@@ -253,7 +247,7 @@ where
     T: ElementOp<F>,
     F: Float,
 {
-    pub fn apply_point<U>(
+    pub fn apply_element<U>(
         self,
         op: U,
     ) -> Pipe<Head<Fused<T, U, ElementElement>, Element, INPUT_LEN>, F, State>
@@ -304,7 +298,7 @@ where
     T: TransformOp<F>,
     F: Float,
 {
-    pub fn apply_point<U>(
+    pub fn apply_element<U>(
         self,
         op: U,
     ) -> Pipe<Head<Fused<T, U, TransformElement>, Transform, INPUT_LEN>, F, State>
@@ -389,7 +383,7 @@ where
     S: Stage<F>,
     F: Float,
 {
-    pub fn apply_point<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, Element, F>, F, State>
+    pub fn apply_element<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, Element, F>, F, State>
     where
         U: ElementOp<F>,
     {
@@ -440,7 +434,7 @@ where
     S: Stage<F>,
     F: Float,
 {
-    pub fn apply_point<U>(
+    pub fn apply_element<U>(
         self,
         op: U,
     ) -> Pipe<Link<Fused<T, U, TransformElement>, S, Transform, F>, F, State>

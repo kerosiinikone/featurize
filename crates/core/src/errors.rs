@@ -1,9 +1,3 @@
-use alloc::string::String;
-use core::{
-    error,
-    fmt::{Debug, Display},
-};
-
 /// Error kinds that can occur during pipeline execution
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -16,6 +10,7 @@ pub enum ErrorKind {
     NaN,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NanHandling {
     Fail,
@@ -43,19 +38,19 @@ pub fn check_finite<T: num_traits::Float>(value: T, handling: NanHandling) -> Re
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PipeError {
     kind: ErrorKind,
-    // SNAPSHOT of the stage (wrapper) -> impl Stage
-    snapshot: Option<String>,
-    message: Option<String>,
+    snapshot: Option<alloc::string::String>,
+    message: Option<alloc::string::String>,
     // backtrace: Option<backtrace::Backtrace>
 }
 
-impl Display for PipeError {
+// TODO: display context
+impl core::fmt::Display for PipeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", "PipeError")
     }
 }
 
-impl error::Error for PipeError {}
+impl core::error::Error for PipeError {}
 
 impl PipeError {
     pub fn new(kind: ErrorKind) -> PipeError {
@@ -66,7 +61,7 @@ impl PipeError {
         }
     }
 
-    pub fn new_with_snapshot(kind: ErrorKind, snapshot: String) -> PipeError {
+    pub fn with_snapshot(kind: ErrorKind, snapshot: alloc::string::String) -> PipeError {
         Self {
             kind,
             message: None,
@@ -74,7 +69,15 @@ impl PipeError {
         }
     }
 
+    pub fn message(&self) -> Option<&alloc::string::String> {
+        self.message.as_ref()
+    }
+
     pub fn kind(&self) -> ErrorKind {
         self.kind
+    }
+
+    pub fn snapshot(&self) -> Option<&alloc::string::String> {
+        self.snapshot.as_ref()
     }
 }

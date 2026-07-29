@@ -7,7 +7,8 @@ pub mod burn_ext {
     use crate::traits::{Float, Stage};
 
     pub trait IntoBurnTensor<F: Float = f32> {
-        fn into_burn_tensor<B, const D: usize>(
+        // https://rust-lang.github.io/api-guidelines/naming.html#ad-hoc-conversions-follow-as_-to_-into_-conventions-c-conv
+        fn to_burn_tensor<B, const D: usize>(
             &mut self,
             input: &[F],
             shape: impl Into<Shape>,
@@ -19,7 +20,7 @@ pub mod burn_ext {
 
     // Naive impl
     impl<F: Float + Element, S: Stage<F>> IntoBurnTensor<F> for PipeExec<S, F> {
-        fn into_burn_tensor<B, const D: usize>(
+        fn to_burn_tensor<B, const D: usize>(
             &mut self,
             input: &[F],
             shape: impl Into<Shape>,

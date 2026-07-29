@@ -34,8 +34,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -53,10 +53,10 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: factor1, nan_handling: NanHandling::Zero })
-            .apply_point(Div { factor: factor2, nan_handling: NanHandling::Zero })
-            .apply_point(Add { value: add_val, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: factor1, nan_handling: NanHandling::Zero })
+            .apply_element(Div { factor: factor2, nan_handling: NanHandling::Zero })
+            .apply_element(Add { value: add_val, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -76,8 +76,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -97,8 +97,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 1.0, nan_handling: NanHandling::Fail })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 1.0, nan_handling: NanHandling::Fail })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -115,8 +115,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -136,15 +136,15 @@ proptest! {
         let len = input.len();
 
         let mut out1 = vec![0f32; len];
-        let mut pipe1 = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: a, nan_handling: NanHandling::Zero })
-            .apply_point(Multiply { factor: b, nan_handling: NanHandling::Zero })
+        let mut pipe1 = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: a, nan_handling: NanHandling::Zero })
+            .apply_element(Multiply { factor: b, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
         pipe1.execute(&input, &mut out1)?;
 
         let mut out2 = vec![0f32; len];
-        let mut pipe2 = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: a * b, nan_handling: NanHandling::Zero })
+        let mut pipe2 = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: a * b, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
         pipe2.execute(&input, &mut out2)?;
 
@@ -170,9 +170,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Add { value, nan_handling: NanHandling::Zero })
-            .apply_point(Subtract { value, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Add { value, nan_handling: NanHandling::Zero })
+            .apply_element(Subtract { value, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -193,9 +193,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor, nan_handling: NanHandling::Zero })
-            .apply_point(Div { factor, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor, nan_handling: NanHandling::Zero })
+            .apply_element(Div { factor, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -218,8 +218,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Abs::default())
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Abs::default())
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -239,8 +239,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Clamp { min, max, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Clamp { min, max, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -258,9 +258,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Pow { exponent: 2.0, nan_handling: NanHandling::Zero })
-            .apply_point(Sqrt::default())
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Pow { exponent: 2.0, nan_handling: NanHandling::Zero })
+            .apply_element(Sqrt::default())
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -283,8 +283,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len / 2];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -303,8 +303,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Normalize { mean, std, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Normalize { mean, std, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -324,8 +324,8 @@ proptest! {
     ) {
         let max_size = size1.max(size2);
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor, nan_handling: NanHandling::Zero })
             .build_dynamic(max_size);
 
         let input1 = vec![1.0f32; size1];
@@ -353,8 +353,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -369,8 +369,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 1.0, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -388,8 +388,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: 2.0, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: 2.0, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -409,9 +409,9 @@ proptest! {
         let len = input.len();
 
         let mut out_fused = vec![0f32; len];
-        let mut pipe_fused = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: factor1, nan_handling: NanHandling::Zero })
-            .apply_point(Multiply { factor: factor2, nan_handling: NanHandling::Zero })
+        let mut pipe_fused = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: factor1, nan_handling: NanHandling::Zero })
+            .apply_element(Multiply { factor: factor2, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
         pipe_fused.execute(&input, &mut out_fused)?;
 
@@ -439,8 +439,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -470,8 +470,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Add { value, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Add { value, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -494,8 +494,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Pow { exponent, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Pow { exponent, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -519,9 +519,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply { factor: factor1, nan_handling: NanHandling::Zero })
-            .apply_point(Multiply { factor: factor2, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply { factor: factor1, nan_handling: NanHandling::Zero })
+            .apply_element(Multiply { factor: factor2, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -554,8 +554,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Normalize { mean, std, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Normalize { mean, std, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -578,8 +578,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Div { factor, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Div { factor, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -602,8 +602,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Subtract { value, nan_handling: NanHandling::Zero })
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Subtract { value, nan_handling: NanHandling::Zero })
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;

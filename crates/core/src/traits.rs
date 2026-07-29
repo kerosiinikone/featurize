@@ -3,6 +3,11 @@ use crate::{
     errors::{ErrorKind, NanHandling, PipeError},
 };
 
+/// Sealing module to prevent external implementations of Stage
+mod sealed {
+    pub trait Sealed<T> {}
+}
+
 /// Float trait bound for pipeline operations
 pub trait Float: num_traits::Float + num_traits::FloatConst + Default + Copy + 'static {}
 impl Float for f32 {}
@@ -25,7 +30,16 @@ impl Float for f64 {}
 /// pipes that receive inputs different from `max_expected_input_length`:
 /// such inputs are rejected with `InvalidInputSize` / `InvalidOutputSize`
 /// instead of invoking UB.
-pub trait Stage<T: Float = f32> {
+///
+/// # Sealed Trait
+///
+/// This trait is sealed and cannot be implemented outside of this crate.
+/// Users should implement `ElementOp` or `TransformOp` instead.
+pub trait Stage<T: Float = f32>: sealed::Sealed<T>
+where
+    Self: Sized,
+{
+    // Iterator support -> build from typestate?
     const IN_LEN: usize;
     const OUT_LEN: usize;
     const MAX_BUF_SIZE: usize;
@@ -53,12 +67,14 @@ pub struct Transform;
 pub struct Element;
 
 /// Generic over the root operation - internal use only
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
     pub(crate) root_op: T,
     pub(crate) marker: core::marker::PhantomData<Mark>,
 }
 
 /// Generic over the previous stage, current operation - internal use only
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Link<T, S, Mark, F>
 where
     F: Float,
@@ -71,7 +87,10 @@ where
 }
 
 /// Point-wise operations that work on individual elements
-pub trait ElementOp<T: Float = f32> {
+pub trait ElementOp<T: Float = f32>
+where
+    Self: Sized,
+{
     fn compute(&self, data: T) -> Result<T, PipeError>;
 
     #[inline(always)]
@@ -115,7 +134,9 @@ pub trait ElementOp<T: Float = f32> {
 }
 
 // Associated types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct True;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct False;
 pub trait IsTrue {}
 impl IsTrue for True {}
@@ -138,7 +159,13 @@ impl IsTrue for True {}
 /// Operations whose bounds depend on *runtime* fields (e.g. crop offsets)
 /// must validate those themselves (once per `execute` call, and with checked
 /// access in `compute`, since fused wrappers call `compute` directly).
-pub trait TransformOp<T: Float = f32> {
+///
+/// TODO: These dynamic operations define their own `in_len()` and `out_len()`. Dynamic operation example
+/// can be found at TBD
+pub trait TransformOp<T: Float = f32>
+where
+    Self: Sized,
+{
     /// Define whether an operation is a pure index remapping (can be fused)
     type IndexRemapping;
 
@@ -210,6 +237,8 @@ pub trait TransformOp<T: Float = f32> {
     /// When defining dynamic operations, overwrite this
     #[inline(always)]
     fn in_len(&self, _default_len: usize) -> usize {
+        // Static operations cannot have a zero length, this
+        // must be overwritten
         const {
             assert!(Self::IN_LEN != 0);
         }
@@ -219,6 +248,8 @@ pub trait TransformOp<T: Float = f32> {
     /// When defining dynamic operations, overwrite this
     #[inline(always)]
     fn out_len(&self, _default_len: usize) -> usize {
+        // Static operations cannot have a zero length, this
+        // must be overwritten
         const {
             assert!(Self::OUT_LEN != 0);
         }
@@ -274,8 +305,11 @@ pub type PipelineDynamic32 = crate::pipeline::PipelineDynamic<f32>;
 pub type PipelineDynamic64 = crate::pipeline::PipelineDynamic<f64>;
 
 /// Markers for assuring typestate - internal use only
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct ElementElement;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TransformTransform;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TransformElement;
 
 /// Generic over the previous operation and current
@@ -481,6 +515,11 @@ where
     }
 }
 
+impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> sealed::Sealed<T>
+    for Head<U, Element, INPUT_LEN>
+{
+}
+
 impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Element, INPUT_LEN> {
     const IN_LEN: usize = INPUT_LEN;
     const OUT_LEN: usize = INPUT_LEN;
@@ -498,7 +537,7 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
         let exec_len = if INPUT_LEN > 0 { INPUT_LEN } else { data.len() };
 
         if exec_len != data.len() {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidInputSize,
                 self.snapshot(),
             ));
@@ -510,7 +549,7 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
         // `build_dynamic()` pipe may receive inputs larger than
         // `max_expected_input_length` -- those are rejected here
         if out_buf.len() < exec_len {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidOutputSize,
                 self.snapshot(),
             ));
@@ -551,6 +590,11 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
     }
 }
 
+impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> sealed::Sealed<T>
+    for Head<U, Transform, INPUT_LEN>
+{
+}
+
 impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
     for Head<U, Transform, INPUT_LEN>
 {
@@ -575,7 +619,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
 
         // Runtime guardrail, optimized if the last operation was dynamic
         if data.len() != data_len {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidInputSize,
                 self.snapshot(),
             ));
@@ -586,7 +630,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
         // The operation in_len must never be zero as it is
         // either statically or dynamically set
         if expected_in == 0 || data_len != expected_in {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidInputSize,
                 self.snapshot(),
             ));
@@ -599,7 +643,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
         // and the unchecked writes inside `TransformOp::execute` stay in
         // bounds
         if n == 0 || (Self::OUT_LEN > 0 && n > Self::OUT_LEN) || n > out_buf.len() {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidOutputSize,
                 self.snapshot(),
             ));
@@ -628,6 +672,8 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
     }
 }
 
+impl<T: Float, U: TransformOp<T>, S: Stage<T>> sealed::Sealed<T> for Link<U, S, Transform, T> {}
+
 impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform, T> {
     const IN_LEN: usize = S::OUT_LEN;
     const OUT_LEN: usize = U::OUT_LEN;
@@ -651,7 +697,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
 
         // Runtime guardrail, optimized if the last operation was dynamic
         if prev_out.len() != data_len {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidInputSize,
                 self.snapshot(),
             ));
@@ -662,7 +708,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
         // The operation in_len must never be zero as it is
         // either statically or dynamically set
         if expected_in == 0 || data_len != expected_in {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidInputSize,
                 self.snapshot(),
             ));
@@ -673,7 +719,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
         // `n` is validated against the static bound (when present) *and*
         // against the actual allocation (see Head<_, Transform>)
         if n == 0 || (Self::OUT_LEN > 0 && n > Self::OUT_LEN) || n > out_buf.len() {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidOutputSize,
                 self.snapshot(),
             ));
@@ -708,6 +754,8 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
     }
 }
 
+impl<T: Float, U: ElementOp<T>, S: Stage<T>> sealed::Sealed<T> for Link<U, S, Element, T> {}
+
 impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T> {
     const IN_LEN: usize = S::OUT_LEN;
     const OUT_LEN: usize = S::OUT_LEN;
@@ -727,7 +775,7 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T>
 
         // Checked against the *actual* allocation (see Head<_, Element>)
         if out_buf.len() < n {
-            return Err(PipeError::new_with_snapshot(
+            return Err(PipeError::with_snapshot(
                 ErrorKind::InvalidOutputSize,
                 self.snapshot(),
             ));

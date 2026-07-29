@@ -8,7 +8,7 @@ use num_traits::Float as _;
 
 /// Normalize operation (point-wise)
 /// Normalizes by standard deviation and mean
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Normalize<T: Float = f32> {
     pub mean: T,
     pub std: T,
@@ -38,7 +38,7 @@ impl<T: Float> ElementOp<T> for Normalize<T> {
 }
 
 /// Division operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Div<T: Float = f32> {
     pub factor: T,
     pub nan_handling: NanHandling,
@@ -66,7 +66,7 @@ impl<T: Float> ElementOp<T> for Div<T> {
 }
 
 /// Multiplication operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Multiply<T: Float = f32> {
     pub factor: T,
     pub nan_handling: NanHandling,
@@ -94,7 +94,7 @@ impl<T: Float> ElementOp<T> for Multiply<T> {
 }
 
 /// Addition operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Add<T: Float = f32> {
     pub value: T,
     pub nan_handling: NanHandling,
@@ -122,7 +122,7 @@ impl<T: Float> ElementOp<T> for Add<T> {
 }
 
 /// Subtraction operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Subtract<T: Float = f32> {
     pub value: T,
     pub nan_handling: NanHandling,
@@ -151,7 +151,7 @@ impl<T: Float> ElementOp<T> for Subtract<T> {
 
 /// Clamp operation (point-wise)
 /// Clamps values between min and max
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Clamp<T: Float = f32> {
     pub min: T,
     pub max: T,
@@ -174,7 +174,7 @@ impl<T: Float> ElementOp<T> for Clamp<T> {
 }
 
 /// Absolute value operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Abs<T: Float = f32> {
     pub nan_handling: NanHandling,
     _phantom: core::marker::PhantomData<T>,
@@ -202,7 +202,7 @@ impl<T: Float> ElementOp<T> for Abs<T> {
 }
 
 /// Power operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pow<T: Float = f32> {
     pub exponent: T,
     pub nan_handling: NanHandling,
@@ -230,7 +230,7 @@ impl<T: Float> ElementOp<T> for Pow<T> {
 }
 
 /// Square root operation (point-wise)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sqrt<T: Float = f32> {
     pub nan_handling: NanHandling,
     _phantom: core::marker::PhantomData<T>,
@@ -258,7 +258,7 @@ impl<T: Float> ElementOp<T> for Sqrt<T> {
 }
 
 /// Truncate operation - reduces the length of the data vector
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Truncate<const ORIGINAL_LEN: usize, const NEW_LEN: usize>;
 
 impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
@@ -312,7 +312,7 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
 }
 
 /// Transpose operation for 2D matrices stored in row-major order
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Transpose<const ROWS: usize, const COLS: usize>;
 
 impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpose<ROWS, COLS> {
@@ -371,7 +371,7 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
 }
 
 /// Pad operation
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pad<T: Float = f32, const ORIGINAL_LEN: usize = 0, const PADDED_LEN: usize = 0> {
     pub pad_value: T,
 }
@@ -436,7 +436,7 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
 }
 
 /// Reverse operation - reverses the order of elements
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Reverse<const LEN: usize>;
 
 impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {

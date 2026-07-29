@@ -7,8 +7,8 @@ pub mod image;
 pub mod ops;
 pub mod pipeline;
 pub mod prelude;
-pub mod traits;
 pub mod tensors;
+pub mod traits;
 
 pub const DYNAMIC_SIZE: usize = 0;
 
@@ -69,7 +69,7 @@ mod tests {
         let in_buf = alloc::vec![2.0f32; 10];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 10>(Multiply {
+            .apply_element::<_, 10>(Multiply {
                 factor: 3.0,
                 ..Default::default()
             })
@@ -102,15 +102,15 @@ mod tests {
         let in_buf = alloc::vec![10.0, 20.0, 30.0, 40.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 4>(Div {
+            .apply_element::<_, 4>(Div {
                 factor: 2.0,
                 ..Default::default()
             })
-            .apply_point(Add {
+            .apply_element(Add {
                 value: 5.0,
                 ..Default::default()
             })
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -128,8 +128,8 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 100];
         let in_buf = alloc::vec![5.0f32; 100];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -147,7 +147,7 @@ mod tests {
         let in_buf = alloc::vec![1f32; 1024];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 1024>(Div {
+            .apply_element::<_, 1024>(Div {
                 factor: 1f32,
                 ..Default::default()
             })
@@ -165,9 +165,9 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 1024];
         let in_buf = alloc::vec![1f32; 1024];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Identity)
-            .apply_point(Div {
+            .apply_element(Div {
                 factor: 1f32,
                 ..Default::default()
             })
@@ -181,8 +181,8 @@ mod tests {
 
     #[test]
     fn test_dynamic_varying_input_sizes() {
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -225,7 +225,7 @@ mod tests {
 
         let mut pipe = Pipeline::new()
             .apply_transform(Truncate::<10, 8>)
-            .apply_point(Div {
+            .apply_element(Div {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -262,15 +262,15 @@ mod tests {
         let in_buf = alloc::vec![10.0, 20.0, 30.0, 40.0, 50.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 5>(Div {
+            .apply_element::<_, 5>(Div {
                 factor: 10.0,
                 ..Default::default()
             })
-            .apply_point(Add {
+            .apply_element(Add {
                 value: 1.0,
                 ..Default::default()
             })
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 10.0,
                 ..Default::default()
             })
@@ -289,7 +289,7 @@ mod tests {
 
         let mut pipe = Pipeline::new()
             .apply_transform(Truncate::<10, 5>)
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -308,23 +308,23 @@ mod tests {
         let in_buf = alloc::vec![100.0, 200.0, 300.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 3>(Div {
+            .apply_element::<_, 3>(Div {
                 factor: 100.0,
                 ..Default::default()
             })
-            .apply_point(Add {
+            .apply_element(Add {
                 value: 1.0,
                 ..Default::default()
             })
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
-            .apply_point(Subtract {
+            .apply_element(Subtract {
                 value: 1.0,
                 ..Default::default()
             })
-            .apply_point(Pow {
+            .apply_element(Pow {
                 exponent: 2.0,
                 ..Default::default()
             })
@@ -342,7 +342,7 @@ mod tests {
         let in_buf = alloc::vec![42.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 1>(Multiply {
+            .apply_element::<_, 1>(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -361,7 +361,7 @@ mod tests {
         let in_buf = alloc::vec![1.0f32; SIZE];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, SIZE>(Add {
+            .apply_element::<_, SIZE>(Add {
                 value: 1.0,
                 ..Default::default()
             })
@@ -444,7 +444,7 @@ mod tests {
         let in_buf = alloc::vec![1.0f32; 10];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 10>(Multiply {
+            .apply_element::<_, 10>(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -464,7 +464,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, f32::NAN, 3.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 3>(Multiply {
+            .apply_element::<_, 3>(Multiply {
                 factor: 2.0,
                 nan_handling: crate::errors::NanHandling::Fail,
             })
@@ -484,7 +484,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, f32::NAN, 3.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 3>(Multiply {
+            .apply_element::<_, 3>(Multiply {
                 factor: 2.0,
                 nan_handling: crate::errors::NanHandling::Zero,
             })
@@ -504,7 +504,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, f32::INFINITY, 3.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 3>(Multiply {
+            .apply_element::<_, 3>(Multiply {
                 factor: 2.0,
                 nan_handling: crate::errors::NanHandling::Zero,
             })
@@ -529,15 +529,15 @@ mod tests {
         }
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, SIZE>(Div {
+            .apply_element::<_, SIZE>(Div {
                 factor: 255.0,
                 ..Default::default()
             })
-            .apply_point(Subtract {
+            .apply_element(Subtract {
                 value: 0.5,
                 ..Default::default()
             })
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -560,7 +560,7 @@ mod tests {
 
         let mut pipe = Pipeline::new()
             .apply_transform(Pad::<f32, ORIGINAL, PADDED> { pad_value: 0.0 })
-            .apply_point(Normalize {
+            .apply_element(Normalize {
                 mean: 0.0,
                 std: 0.5,
                 ..Default::default()
@@ -584,12 +584,12 @@ mod tests {
         let in_buf = alloc::vec![10.0f32; SIZE];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, SIZE>(Normalize {
+            .apply_element::<_, SIZE>(Normalize {
                 mean: 5.0,
                 std: 2.0,
                 ..Default::default()
             })
-            .apply_point(Clamp {
+            .apply_element(Clamp {
                 min: -3.0,
                 max: 3.0,
                 nan_handling: Default::default(),
@@ -611,13 +611,13 @@ mod tests {
         let in_buf: alloc::vec::Vec<f32> = (0..INPUT_SIZE).map(|i| i as f32).collect();
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, INPUT_SIZE>(Normalize {
+            .apply_element::<_, INPUT_SIZE>(Normalize {
                 mean: 500.0,
                 std: 100.0,
                 ..Default::default()
             })
             .apply_transform(Truncate::<INPUT_SIZE, REDUCED_SIZE>)
-            .apply_point(Abs::default())
+            .apply_element(Abs::default())
             .build();
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -633,12 +633,12 @@ mod tests {
 
         let mut pipe = Pipeline::new()
             .apply_transform(Truncate::<10, 8>)
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
             .apply_transform(Truncate::<8, 5>)
-            .apply_point(Add {
+            .apply_element(Add {
                 value: 1.0,
                 ..Default::default()
             })
@@ -658,7 +658,7 @@ mod tests {
 
         let mut pipe = Pipeline::new()
             .apply_transform(Reverse::<5>)
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 10.0,
                 ..Default::default()
             })
@@ -696,7 +696,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, 2.0, 3.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 3>(Div {
+            .apply_element::<_, 3>(Div {
                 factor: 1e-10,
                 nan_handling: crate::errors::NanHandling::Zero,
             })
@@ -713,7 +713,9 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 3];
         let in_buf = alloc::vec![-1.0, 4.0, -9.0];
 
-        let mut pipe = Pipeline::new().apply_point::<_, 3>(Sqrt::default()).build();
+        let mut pipe = Pipeline::new()
+            .apply_element::<_, 3>(Sqrt::default())
+            .build();
 
         let n = pipe.execute(&in_buf, &mut out_buf);
         assert!(n.is_err())
@@ -725,7 +727,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 5>(Clamp {
+            .apply_element::<_, 5>(Clamp {
                 min: 3.0,
                 max: 3.0,
                 nan_handling: Default::default(),
@@ -746,7 +748,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         let mut pipe = Pipeline::new()
-            .apply_point::<_, 5>(Pow {
+            .apply_element::<_, 5>(Pow {
                 exponent: 0.0,
                 ..Default::default()
             })
@@ -765,8 +767,8 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 100];
         let in_buf = alloc::vec![1.0f32; 50];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -782,8 +784,8 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 5];
         let in_buf = alloc::vec![1.0f32; 100];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -801,7 +803,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 5];
         let in_buf = alloc::vec![1.0f32; 8];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Truncate::<10, 5>)
             .build_dynamic(10);
 
@@ -817,7 +819,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 3];
         let in_buf = alloc::vec![1.0f32; 10];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Truncate::<10, 8>)
             .apply_transform(Truncate::<8, 5>)
             .apply_transform(Truncate::<5, 3>)
@@ -835,9 +837,9 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; PADDED];
         let in_buf = alloc::vec![1.0f32; ORIGINAL];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Pad::<f32, ORIGINAL, PADDED> { pad_value: 0.0 })
-            .apply_point(Multiply {
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -854,8 +856,8 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 10];
         let in_buf = alloc::vec![];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -870,8 +872,8 @@ mod tests {
         let mut out_buf = alloc::vec![];
         let in_buf = alloc::vec![1.0f32; 10];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -889,7 +891,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 5];
         let in_buf = alloc::vec![1.0f32; 10];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Pad::<_, 10, 20> { pad_value: 0.0 })
             .apply_transform(Truncate::<20, 5>)
             .build_dynamic(10);
@@ -903,7 +905,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 2];
         let in_buf = alloc::vec![1.0f32; 5];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Pad::<_, 5, 10> { pad_value: 0.0 })
             .apply_transform(Truncate::<10, 7>)
             .apply_transform(Truncate::<7, 4>)
@@ -921,7 +923,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 10];
         let in_buf = alloc::vec![1.0f32; 8];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Reverse::<10>)
             .build_dynamic(10);
 
@@ -937,7 +939,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 6];
         let in_buf = alloc::vec![1.0f32; 8];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Transpose::<2, 3>)
             .build_dynamic(6);
 
@@ -953,12 +955,12 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 5];
         let in_buf = alloc::vec![1.0, 2.0, f32::NAN, 4.0, 5.0];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 nan_handling: crate::errors::NanHandling::Fail,
             })
-            .apply_point(Add {
+            .apply_element(Add {
                 value: 1.0,
                 nan_handling: crate::errors::NanHandling::Fail,
             })
@@ -976,8 +978,8 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 3];
         let in_buf = alloc::vec![1.0, 0.0, 3.0];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Div {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Div {
                 factor: 0.0,
                 nan_handling: crate::errors::NanHandling::Fail,
             })
@@ -992,8 +994,8 @@ mod tests {
 
     #[test]
     fn test_dynamic_buffer_reuse_correctness() {
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -1020,7 +1022,7 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; HUGE];
         let in_buf = alloc::vec![1.0f32; SMALL];
 
-        let mut pipe = Pipeline::new_with_dynamic()
+        let mut pipe = Pipeline::with_dynamic()
             .apply_transform(Pad::<_, SMALL, HUGE> { pad_value: -1.0 })
             .build_dynamic(SMALL);
 
@@ -1036,8 +1038,8 @@ mod tests {
         let mut out_buf = alloc::vec![0f32; 200];
         let in_buf = alloc::vec![1.0f32; 200];
 
-        let mut pipe = Pipeline::new_with_dynamic()
-            .apply_point(Multiply {
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_element(Multiply {
                 factor: 2.0,
                 ..Default::default()
             })
@@ -1084,9 +1086,7 @@ mod tests {
         let in_buf = alloc::vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let mut out_buf = alloc::vec![0f32; 6];
 
-        let mut pipe = Pipeline::new()
-            .apply_transform(Rotate90::<3, 2, 1>)
-            .build();
+        let mut pipe = Pipeline::new().apply_transform(Rotate90::<3, 2, 1>).build();
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
 

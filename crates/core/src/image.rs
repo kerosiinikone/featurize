@@ -6,7 +6,7 @@ use crate::{
 /// Grayscale operation (channel reduction)
 /// Converts multi-channel data to single channel using luminance weights for RGB
 /// or averaging for other channel counts
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize> {
     pub invert: bool,
     pub nan_handling: NanHandling,
@@ -105,7 +105,7 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
 
 /// 2D Scale operation for images
 /// Scales an image from input dimensions to output dimensions using nearest neighbor sampling
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Scale2D<
     const IN_W: usize,
     const IN_H: usize,
@@ -189,7 +189,7 @@ impl<
 
 /// Crop operation for images
 /// Extracts a rectangular region from an image
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Crop<
     const IN_W: usize,
     const IN_H: usize,
@@ -281,7 +281,7 @@ impl<
 }
 
 /// Rotate90 operation - rotates image 90 degrees clockwise
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Rotate90<const W: usize, const H: usize, const C: usize>;
 
 impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W, H, C> {
@@ -339,7 +339,7 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
 }
 
 /// Flip horizontal operation
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct FlipHorizontal<const W: usize, const H: usize, const C: usize>;
 
 impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizontal<W, H, C> {
@@ -395,7 +395,7 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
 }
 
 /// Flip vertical operation
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct FlipVertical<const W: usize, const H: usize, const C: usize>;
 
 impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertical<W, H, C> {
