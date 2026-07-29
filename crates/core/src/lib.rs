@@ -48,6 +48,10 @@ impl<T: crate::traits::Float> crate::traits::TransformOp<T> for Identity {
         input: &'i [T],
         n: usize,
     ) -> Result<&'o mut [T], errors::PipeError> {
+        debug_assert!(input.len() >= n && out.len() >= n);
+        // SAFETY: the stage guarantees `input.len() == in_len(..) == n` and
+        // `out.len() == n` before dispatching here; the buffers are distinct
+        // allocations, so the ranges cannot overlap
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), n);
         }
@@ -1044,5 +1048,53 @@ mod tests {
         if let Err(e) = result {
             assert!(matches!(e.kind(), ErrorKind::InvalidOutputSize));
         }
+    }
+
+    #[test]
+    fn test_crop_invalid_offsets_error() {
+        use crate::image::Crop;
+
+        let mut out_buf = alloc::vec![0f32; 4];
+        // 4x4 single-channel image
+        let in_buf = alloc::vec![1.0f32; 16];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Crop::<4, 4, 1, 2, 2> {
+                offset_x: 3,
+                offset_y: 0,
+            })
+            .build();
+
+        // offset_x + OUT_W = 5 > IN_W = 4 -> the window is validated at
+        // runtime and must fail instead of reading out of bounds
+        let result = pipe.execute(&in_buf, &mut out_buf);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
+        }
+    }
+
+    #[test]
+    fn test_rotate90_rectangular() {
+        use crate::image::Rotate90;
+
+        // 3x2 image (W=3, H=2), single channel:
+        // 1 2 3
+        // 4 5 6
+        let in_buf = alloc::vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = alloc::vec![0f32; 6];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Rotate90::<3, 2, 1>)
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 6);
+        // Rotated clockwise (2 wide, 3 tall):
+        // 4 1
+        // 5 2
+        // 6 3
+        assert_eq!(out_buf, alloc::vec![4.0, 1.0, 5.0, 2.0, 6.0, 3.0]);
     }
 }

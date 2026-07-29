@@ -113,6 +113,10 @@ impl<F: Float> PipelineStatic<F> {
     {
         const {
             assert!(T::IN_LEN > 0 && T::OUT_LEN > 0, "Dynamic bounds");
+            // Ops with an internal consistency requirement (e.g. Truncate:
+            // NEW_LEN <= ORIGINAL_LEN) rely on this being asserted at every
+            // construction site: unchecked reads in their `execute` cite it.
+            assert!(T::INTERNAL_IS_VALID, "Invalid transform bounds");
         }
 
         Pipe {
@@ -145,6 +149,14 @@ impl<F: Float> PipelineDynamic<F> {
     where
         T: TransformOp<F>,
     {
+        const {
+            // Even in a dynamic pipe the *internal* consistency of an op is
+            // known at compile time (it only depends on its own const
+            // generics) -- assert it here so ops like `Truncate` can rely on
+            // it in their unchecked `execute` paths.
+            assert!(T::INTERNAL_IS_VALID, "Invalid transform bounds");
+        }
+
         Pipe {
             stages: Head {
                 root_op: op,
@@ -161,6 +173,12 @@ where
     F: Float,
 {
     // The input data dims must be known at this point
+    //
+    // Buffer-size invariant: `MAX_BUF_SIZE` is the maximum of every stage's
+    // static output length (and the head's input length), so each stage's
+    // intermediate result fits into either scratch buffer. The `Stage`
+    // implementations additionally re-check against the *actual* buffer
+    // length at runtime before entering any unchecked loop.
     pub fn build(self) -> PipeExec<T, F> {
         const {
             assert!(T::MAX_BUF_SIZE > 0, "Pipeline has dynamic bounds");
@@ -181,7 +199,15 @@ where
     T: Stage<F>,
     F: Float,
 {
-    // Dynamic bound checking
+    /// Dynamic bound checking
+    ///
+    /// Buffers are sized for `max_expected_input_length` by walking the
+    /// stages with `max_buf_size_dynamic`. Note that this implicitly assumes
+    /// an op's `out_len()` is monotonic in its input length; if an actual
+    /// input (smaller or larger than the expected maximum) produces an
+    /// intermediate result that exceeds the allocation, the `Stage`
+    /// implementations reject it at runtime with `InvalidInputSize` /
+    /// `InvalidOutputSize` -- it can never lead to out-of-bounds access.
     pub fn build_dynamic(self, max_expected_input_length: usize) -> PipeExec<T, F> {
         let buf_size = self.stages.max_buf_size_dynamic(max_expected_input_length);
 
@@ -203,6 +229,8 @@ where
         let out_buf = &mut self.out_buf;
         let in_buf = &mut self.in_buf;
 
+        // Every stage validates its input length and the actual scratch
+        // buffer capacity before running its (unchecked) computation loop.
         let exec = self.stages.execute(input, in_buf, out_buf)?;
         let exec_len = exec.len();
 
@@ -251,7 +279,13 @@ where
         U: TransformOp<F>,
     {
         const {
-            assert!(U::INTERNAL_IS_VALID, "Invalid input length");
+            assert!(U::INTERNAL_IS_VALID, "Invalid transform bounds");
+            // The element head's static length (when present) must match the
+            // transform's static input length (when present)
+            assert!(
+                INPUT_LEN == 0 || U::IN_LEN == 0 || U::IN_LEN == INPUT_LEN,
+                "Invalid input length"
+            );
         }
         let prev_head = self.stages;
 

@@ -1,5 +1,5 @@
 use crate::{
-    errors::{check_finite, NanHandling, PipeError},
+    errors::{check_finite, ErrorKind, NanHandling, PipeError},
     traits::{ElementOp, False, Float, IsTrue, TransformOp, True},
 };
 
@@ -268,6 +268,10 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
 
     const IN_LEN: usize = ORIGINAL_LEN;
     const OUT_LEN: usize = NEW_LEN;
+    /// A truncation must never *grow* the data: copying `NEW_LEN` elements
+    /// out of an `ORIGINAL_LEN` input would otherwise read out of bounds.
+    /// Asserted at every pipe-construction site.
+    const INTERNAL_IS_VALID: bool = NEW_LEN <= ORIGINAL_LEN;
 
     #[inline(always)]
     fn map_index(&self, out_index: usize) -> usize
@@ -282,9 +286,20 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
         &self,
         out: &'o mut [T],
         input: &'i [T],
-        _: usize,
+        n: usize,
     ) -> Result<&'o mut [T], PipeError> {
-        // TODO: n?
+        // The stage guarantees `n == out_len(..) == NEW_LEN`
+        debug_assert_eq!(n, NEW_LEN);
+
+        // Cheap once-per-call guard so the bulk copy below can be unchecked
+        if input.len() < NEW_LEN || out.len() < NEW_LEN {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
+        // SAFETY: `INTERNAL_IS_VALID` guarantees `NEW_LEN <= ORIGINAL_LEN`
+        // at pipe-construction time and both slice lengths were verified
+        // above, so the copy stays within both allocations. `input` and
+        // `out` come from distinct buffers, so the ranges cannot overlap
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), NEW_LEN);
         }
@@ -311,6 +326,8 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
     where
         Self::IndexRemapping: IsTrue,
     {
+        // For `out_index < ROWS * COLS`: `out_row < COLS`, `out_col < ROWS`,
+        // hence the result is `< ROWS * COLS` (the map_index contract)
         let out_row = out_index / ROWS;
         let out_col = out_index % ROWS;
         out_col * COLS + out_row
@@ -319,6 +336,10 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
     #[inline(always)]
     fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let in_index = <Transpose<ROWS, COLS> as TransformOp<T>>::map_index(self, out_index);
+        debug_assert!(in_index < data.len());
+        // SAFETY: caller contract: `out_index < out_len(..) == ROWS * COLS`
+        // and `data.len() == in_len(..) == ROWS * COLS`; `map_index` then
+        // stays within `[0, ROWS * COLS)` (see above)
         Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
@@ -329,7 +350,14 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
         input: &'i [T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
+        // Cheap once-per-call guard so the loop below can be unchecked
+        if n > ROWS * COLS || input.len() < ROWS * COLS || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            // SAFETY: `out_index < n <= out.len()` (checked above); the read
+            // is bounded by `map_index` (see `compute`)
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
@@ -342,7 +370,7 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
     }
 }
 
-/// Pad operation - adds padding to the data
+/// Pad operation
 #[derive(Debug, Clone, Copy)]
 pub struct Pad<T: Float = f32, const ORIGINAL_LEN: usize = 0, const PADDED_LEN: usize = 0> {
     pub pad_value: T,
@@ -355,10 +383,16 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
 
     const IN_LEN: usize = ORIGINAL_LEN;
     const OUT_LEN: usize = PADDED_LEN;
+    /// Padding must never shrink the data (use `Truncate` for that)
+    const INTERNAL_IS_VALID: bool = PADDED_LEN >= ORIGINAL_LEN;
 
     #[inline(always)]
     fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         if out_index < ORIGINAL_LEN {
+            debug_assert!(out_index < data.len());
+            // SAFETY: caller contract guarantees
+            // `data.len() == in_len(..) == ORIGINAL_LEN`, and
+            // `out_index < ORIGINAL_LEN` was just checked
             Ok(unsafe { *data.get_unchecked(out_index) })
         } else {
             Ok(self.pad_value)
@@ -373,11 +407,22 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         let copy_len = ORIGINAL_LEN.min(n);
+
+        // Cheap once-per-call guard so the bulk copy / fill below can be
+        // unchecked
+        if input.len() < copy_len || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
+        // SAFETY: `copy_len <= input.len()` and `copy_len <= n <= out.len()`
+        // were verified above; the buffers are distinct allocations, so the
+        // ranges cannot overlap
         unsafe {
             core::ptr::copy_nonoverlapping(input.as_ptr(), out.as_mut_ptr(), copy_len);
         }
 
         for i in copy_len..n {
+            // SAFETY: `i < n <= out.len()` (checked above)
             unsafe {
                 *out.get_unchecked_mut(i) = self.pad_value;
             }
@@ -405,12 +450,16 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
     where
         Self::IndexRemapping: IsTrue,
     {
+        // Contract: `out_index < LEN`, otherwise this underflows
         LEN - 1 - out_index
     }
 
     #[inline(always)]
     fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let in_index = <Reverse<LEN> as TransformOp<T>>::map_index(self, out_index);
+        debug_assert!(in_index < data.len());
+        // SAFETY: caller contract: `out_index < out_len(..) == LEN`, so
+        // `in_index = LEN - 1 - out_index < LEN == in_len(..) == data.len()`
         Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
@@ -421,7 +470,15 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
         input: &'i [T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
+        // Cheap once-per-call guard so the loop below can be unchecked
+        // (`map_index` would underflow for out_index >= LEN)
+        if n > LEN || input.len() < LEN || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            // SAFETY: `out_index < n <= out.len()` (checked above); the read
+            // is bounded by `map_index` (see `compute`)
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }

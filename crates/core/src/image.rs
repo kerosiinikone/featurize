@@ -1,5 +1,5 @@
 use crate::{
-    errors::{NanHandling, PipeError, check_finite},
+    errors::{ErrorKind, NanHandling, PipeError, check_finite},
     traits::{False, TransformOp},
 };
 
@@ -65,8 +65,16 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // Cheap once-per-call guard so the per-pixel loop below can be
+        // unchecked
+        if input.len() < n * IN_C || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for i in 0..n {
             let base_idx = i * IN_C;
+            // SAFETY: `base_idx + IN_C <= n * IN_C <= input.len()` and
+            // `i < n <= out.len()` (both checked above)
             unsafe {
                 let in_chunk = core::slice::from_raw_parts(input.as_ptr().add(base_idx), IN_C);
                 let luminance = self.compute_luminance(in_chunk);
@@ -79,6 +87,10 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> TransformOp
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let base_idx = out_index * IN_C;
+        debug_assert!(base_idx + IN_C <= data.len());
+        // SAFETY: caller contract: `out_index < out_len(..) == IN_W * IN_H`,
+        // so `base_idx + IN_C <= IN_W * IN_H * IN_C == in_len(..) ==
+        // data.len()`
         let luminance = unsafe {
             let in_chunk = core::slice::from_raw_parts(data.as_ptr().add(base_idx), IN_C);
             self.compute_luminance(in_chunk)
@@ -116,6 +128,10 @@ impl<
 
     const IN_LEN: usize = IN_W * IN_H * IN_C;
     const OUT_LEN: usize = OUT_W * OUT_H * OUT_C;
+    /// The output channel index is used to sample the *input* channels, so
+    /// `OUT_C > IN_C` would read out of bounds. Asserted at every
+    /// pipe-construction site.
+    const INTERNAL_IS_VALID: bool = OUT_C <= IN_C;
 
     #[inline(always)]
     fn execute<'i, 'o>(
@@ -124,7 +140,14 @@ impl<
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // Cheap once-per-call guard so the loop below can be unchecked
+        if n > OUT_W * OUT_H * OUT_C || input.len() < IN_W * IN_H * IN_C || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            // SAFETY: `out_index < n <= out.len()` (checked above); the read
+            // is bounded by the index math in `compute`
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
@@ -134,6 +157,8 @@ impl<
 
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
+        debug_assert!(out_index < OUT_W * OUT_H * OUT_C);
+
         let out_c = if OUT_C > 1 { out_index % OUT_C } else { 0 };
         let pixel_index = if OUT_C > 1 {
             out_index / OUT_C
@@ -148,6 +173,12 @@ impl<
         let in_y = (out_y * IN_H) / OUT_H;
         let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
 
+        debug_assert!(in_idx < data.len());
+        // SAFETY: caller contract: `out_index < OUT_LEN`, so `out_x < OUT_W`
+        // and `out_y < OUT_H`, hence `in_x < IN_W` and `in_y < IN_H`;
+        // `out_c < OUT_C <= IN_C` (INTERNAL_IS_VALID, asserted at
+        // construction), therefore
+        // `in_idx < IN_W * IN_H * IN_C == in_len(..) == data.len()`
         Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
@@ -182,6 +213,9 @@ impl<
 
     const IN_LEN: usize = IN_W * IN_H * IN_C;
     const OUT_LEN: usize = OUT_W * OUT_H * IN_C;
+    /// The crop window must fit into the input even before applying the
+    /// runtime offsets (those are validated in `execute` / `compute`)
+    const INTERNAL_IS_VALID: bool = OUT_W <= IN_W && OUT_H <= IN_H;
 
     #[inline(always)]
     fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
@@ -195,7 +229,9 @@ impl<
 
         let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
 
-        Ok(unsafe { *data.get_unchecked(in_idx) })
+        data.get(in_idx)
+            .copied()
+            .ok_or_else(|| PipeError::new(ErrorKind::InvalidInputSize))
     }
 
     #[inline(always)]
@@ -205,9 +241,35 @@ impl<
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // Validate the *runtime* crop window once, so the loop below can run
+        // without per-element bound checks
+        if self.offset_x + OUT_W > IN_W
+            || self.offset_y + OUT_H > IN_H
+            || n > OUT_W * OUT_H * IN_C
+            || input.len() < IN_W * IN_H * IN_C
+            || out.len() < n
+        {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            let out_c = out_index % IN_C;
+            let pixel_index = out_index / IN_C;
+            let out_x = pixel_index % OUT_W;
+            let out_y = pixel_index / OUT_W;
+
+            let in_x = out_x + self.offset_x;
+            let in_y = out_y + self.offset_y;
+
+            let in_idx = (in_y * IN_W + in_x) * IN_C + out_c;
+
+            // SAFETY: the window validation above guarantees
+            // `in_x < offset_x + OUT_W <= IN_W` and
+            // `in_y < offset_y + OUT_H <= IN_H`, hence
+            // `in_idx < IN_W * IN_H * IN_C <= input.len()`;
+            // `out_index < n <= out.len()` was also checked above
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = *input.get_unchecked(in_idx);
             }
         }
         Ok(out)
@@ -232,14 +294,20 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
     fn compute(&self, data: &[f32], out_index: usize) -> Result<f32, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
+        // The rotated image is `H` pixels wide and `W` pixels tall
         let out_x = pixel_index % H;
         let out_y = pixel_index / H;
 
-        let in_x = H - 1 - out_y;
-        let in_y = out_x;
+        // Clockwise rotation: output(x, y) <- input(y, H - 1 - x)
+        let in_x = out_y;
+        let in_y = H - 1 - out_x;
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
+        debug_assert!(in_idx < data.len());
+        // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
+        // so `out_x < H` and `out_y < W`, hence `in_x < W` and `in_y < H`,
+        // therefore `in_idx < W * H * C == in_len(..) == data.len()`
         Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
@@ -250,7 +318,14 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for Rotate90<W,
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // Cheap once-per-call guard so the loop below can be unchecked
+        if n > W * H * C || input.len() < W * H * C || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            // SAFETY: `out_index < n <= out.len()` (checked above); the read
+            // is bounded by the index math in `compute`
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
@@ -285,6 +360,10 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
+        debug_assert!(in_idx < data.len());
+        // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
+        // so `out_x < W` (hence `in_x < W`) and `out_y < H`, therefore
+        // `in_idx < W * H * C == in_len(..) == data.len()`
         Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
@@ -295,7 +374,14 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipHorizon
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // Cheap once-per-call guard so the loop below can be unchecked
+        if n > W * H * C || input.len() < W * H * C || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            // SAFETY: `out_index < n <= out.len()` (checked above); the read
+            // is bounded by the index math in `compute`
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
@@ -330,6 +416,10 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertica
 
         let in_idx = (in_y * W + in_x) * C + out_c;
 
+        debug_assert!(in_idx < data.len());
+        // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
+        // so `out_x < W` and `out_y < H` (hence `in_y < H`), therefore
+        // `in_idx < W * H * C == in_len(..) == data.len()`
         Ok(unsafe { *data.get_unchecked(in_idx) })
     }
 
@@ -340,7 +430,14 @@ impl<const W: usize, const H: usize, const C: usize> TransformOp for FlipVertica
         input: &'i [f32],
         n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
+        // Cheap once-per-call guard so the loop below can be unchecked
+        if n > W * H * C || input.len() < W * H * C || out.len() < n {
+            return Err(PipeError::new(ErrorKind::InvalidInputSize));
+        }
+
         for out_index in 0..n {
+            // SAFETY: `out_index < n <= out.len()` (checked above); the read
+            // is bounded by the index math in `compute`
             unsafe {
                 *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
             }
