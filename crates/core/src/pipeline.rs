@@ -7,8 +7,10 @@ use crate::{
 };
 
 /// Markers for pipeline type - internal use only
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Static;
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Dynamic;
 
@@ -337,7 +339,6 @@ where
                 curr_op: op,
                 prev_stage: prev_head,
                 marker: core::marker::PhantomData {},
-                _float_marker: core::marker::PhantomData {},
             },
             marker: core::marker::PhantomData {},
         }
@@ -394,7 +395,6 @@ where
                 prev_stage: stages.prev_stage,
                 curr_op: stages.curr_op.fuse_element(op),
                 marker: core::marker::PhantomData {},
-                _float_marker: core::marker::PhantomData {},
             },
             marker: core::marker::PhantomData {},
         }
@@ -421,7 +421,6 @@ where
                 prev_stage: stages.prev_stage,
                 curr_op: stages.curr_op.fuse_transform(op),
                 marker: core::marker::PhantomData {},
-                _float_marker: core::marker::PhantomData {},
             },
             marker: core::marker::PhantomData {},
         }
@@ -448,7 +447,6 @@ where
                 prev_stage: stages.prev_stage,
                 curr_op: stages.curr_op.fuse_element(op),
                 marker: core::marker::PhantomData {},
-                _float_marker: core::marker::PhantomData {},
             },
             marker: core::marker::PhantomData {},
         }
@@ -475,7 +473,6 @@ where
                 prev_stage: stages,
                 curr_op: op,
                 marker: core::marker::PhantomData {},
-                _float_marker: core::marker::PhantomData {},
             },
             marker: core::marker::PhantomData {},
         }
@@ -511,7 +508,6 @@ where
                 marker: core::marker::PhantomData {},
                 curr_op: stages.curr_op.fuse_transform(op),
                 prev_stage: stages.prev_stage,
-                _float_marker: core::marker::PhantomData {},
             },
             marker: core::marker::PhantomData {},
         }

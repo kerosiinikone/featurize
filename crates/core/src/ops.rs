@@ -25,6 +25,24 @@ impl<T: Float> Default for Normalize<T> {
     }
 }
 
+impl<T: Float> Normalize<T> {
+    pub fn new(std: T, mean: T) -> Self {
+        assert!(!std.is_zero() && std.is_sign_positive() && std.is_finite());
+        assert!(mean.is_finite());
+
+        Self {
+            mean,
+            std,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
+}
+
 impl<T: Float> ElementOp<T> for Normalize<T> {
     #[inline(always)]
     fn compute(&self, data: T) -> Result<T, PipeError> {
@@ -42,6 +60,22 @@ impl<T: Float> ElementOp<T> for Normalize<T> {
 pub struct Div<T: Float = f32> {
     pub factor: T,
     pub nan_handling: NanHandling,
+}
+
+impl<T: Float> Div<T> {
+    pub fn new(factor: T) -> Self {
+        assert!(!factor.is_zero() && factor.is_finite());
+
+        Self {
+            factor,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
 }
 
 impl<T: Float> Default for Div<T> {
@@ -72,6 +106,22 @@ pub struct Multiply<T: Float = f32> {
     pub nan_handling: NanHandling,
 }
 
+impl<T: Float> Multiply<T> {
+    pub fn new(factor: T) -> Self {
+        assert!(factor.is_finite());
+
+        Self {
+            factor,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
+}
+
 impl<T: Float> Default for Multiply<T> {
     fn default() -> Self {
         Self {
@@ -100,6 +150,22 @@ pub struct Add<T: Float = f32> {
     pub nan_handling: NanHandling,
 }
 
+impl<T: Float> Add<T> {
+    pub fn new(value: T) -> Self {
+        assert!(value.is_finite());
+
+        Self {
+            value,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
+}
+
 impl<T: Float> Default for Add<T> {
     fn default() -> Self {
         Self {
@@ -126,6 +192,22 @@ impl<T: Float> ElementOp<T> for Add<T> {
 pub struct Subtract<T: Float = f32> {
     pub value: T,
     pub nan_handling: NanHandling,
+}
+
+impl<T: Float> Subtract<T> {
+    pub fn new(value: T) -> Self {
+        assert!(value.is_finite());
+
+        Self {
+            value,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
 }
 
 impl<T: Float> Default for Subtract<T> {
@@ -158,6 +240,24 @@ pub struct Clamp<T: Float = f32> {
     pub nan_handling: NanHandling,
 }
 
+impl<T: Float> Clamp<T> {
+    pub fn new(min: T, max: T) -> Self {
+        assert!(min.is_finite() && max.is_finite());
+        assert!(min <= max);
+
+        Self {
+            min,
+            max,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
+}
+
 impl<T: Float> ElementOp<T> for Clamp<T> {
     #[inline(always)]
     fn compute(&self, data: T) -> Result<T, PipeError> {
@@ -177,14 +277,28 @@ impl<T: Float> ElementOp<T> for Clamp<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Abs<T: Float = f32> {
     pub nan_handling: NanHandling,
-    _phantom: core::marker::PhantomData<T>,
+    marker: core::marker::PhantomData<T>,
+}
+
+impl<T: Float> Abs<T> {
+    pub fn new() -> Self {
+        Self {
+            nan_handling: NanHandling::default(),
+            marker: core::marker::PhantomData,
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
 }
 
 impl<T: Float> Default for Abs<T> {
     fn default() -> Self {
         Self {
             nan_handling: NanHandling::default(),
-            _phantom: core::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -206,6 +320,22 @@ impl<T: Float> ElementOp<T> for Abs<T> {
 pub struct Pow<T: Float = f32> {
     pub exponent: T,
     pub nan_handling: NanHandling,
+}
+
+impl<T: Float> Pow<T> {
+    pub fn new(exponent: T) -> Self {
+        assert!(exponent.is_finite());
+
+        Self {
+            exponent,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
 }
 
 impl<T: Float> Default for Pow<T> {
@@ -233,14 +363,28 @@ impl<T: Float> ElementOp<T> for Pow<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sqrt<T: Float = f32> {
     pub nan_handling: NanHandling,
-    _phantom: core::marker::PhantomData<T>,
+    marker: core::marker::PhantomData<T>,
+}
+
+impl<T: Float> Sqrt<T> {
+    pub fn new() -> Self {
+        Self {
+            nan_handling: NanHandling::default(),
+            marker: core::marker::PhantomData,
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
 }
 
 impl<T: Float> Default for Sqrt<T> {
     fn default() -> Self {
         Self {
             nan_handling: NanHandling::default(),
-            _phantom: core::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }

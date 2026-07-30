@@ -63,10 +63,13 @@ where
 }
 
 /// Stage marks (curr op) - internal use only
+#[doc(hidden)]
 pub struct Transform;
+#[doc(hidden)]
 pub struct Element;
 
 /// Generic over the root operation - internal use only
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
     pub(crate) root_op: T,
@@ -74,6 +77,7 @@ pub struct Head<T, Mark, const INPUT_LEN: usize = 0> {
 }
 
 /// Generic over the previous stage, current operation - internal use only
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Link<T, S, Mark, F>
 where
@@ -82,8 +86,7 @@ where
 {
     pub(crate) prev_stage: S,
     pub(crate) curr_op: T,
-    pub(crate) marker: core::marker::PhantomData<Mark>,
-    pub(crate) _float_marker: core::marker::PhantomData<F>,
+    pub(crate) marker: core::marker::PhantomData<(Mark, F)>,
 }
 
 /// Point-wise operations that work on individual elements
@@ -133,7 +136,7 @@ where
     }
 }
 
-// Associated types
+// Associated types for IndexRemappable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct True;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -305,15 +308,19 @@ pub type PipelineDynamic32 = crate::pipeline::PipelineDynamic<f32>;
 pub type PipelineDynamic64 = crate::pipeline::PipelineDynamic<f64>;
 
 /// Markers for assuring typestate - internal use only
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct ElementElement;
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TransformTransform;
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TransformElement;
 
 /// Generic over the previous operation and current
 /// Allows for fusing the operations - internal use only
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 pub struct Fused<T, S, FusedState = ElementElement> {
     pub(crate) prev_op: T,
@@ -495,6 +502,7 @@ where
         Ok(out)
     }
 
+    #[inline(always)]
     fn setup(&self) {
         TransformOp::setup(&self.prev_op);
         TransformOp::setup(&self.curr_op);

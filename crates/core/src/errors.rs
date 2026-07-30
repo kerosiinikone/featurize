@@ -43,10 +43,12 @@ pub struct PipeError {
     // backtrace: Option<backtrace::Backtrace>
 }
 
-// TODO: display context
 impl core::fmt::Display for PipeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", "PipeError")
+        match &self.snapshot {
+            None => write!(f, "{}", "PipeError"),
+            Some(ctx) => write!(f, "PipeError: {}", ctx.clone()),
+        }
     }
 }
 

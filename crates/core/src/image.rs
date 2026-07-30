@@ -12,6 +12,20 @@ pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize> {
     pub nan_handling: NanHandling,
 }
 
+impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Grayscale<IN_W, IN_H, IN_C> {
+    pub fn new(invert: bool) -> Self {
+        Self {
+            invert,
+            nan_handling: NanHandling::default(),
+        }
+    }
+
+    pub fn set_nan_handling(&mut self, nan_handling: NanHandling) -> &mut Self {
+        self.nan_handling = nan_handling;
+        self
+    }
+}
+
 impl<const IN_W: usize, const IN_H: usize, const IN_C: usize> Default
     for Grayscale<IN_W, IN_H, IN_C>
 {
@@ -199,6 +213,22 @@ pub struct Crop<
 > {
     pub offset_x: usize,
     pub offset_y: usize,
+}
+
+impl<
+    const IN_W: usize,
+    const IN_H: usize,
+    const IN_C: usize,
+    const OUT_W: usize,
+    const OUT_H: usize,
+> Crop<IN_W, IN_H, IN_C, OUT_W, OUT_H>
+{
+    pub fn new(offset_x: usize, offset_y: usize) -> Self {
+        assert!(offset_x + OUT_W <= IN_W);
+        assert!(offset_y + OUT_H <= IN_H);
+
+        Self { offset_x, offset_y }
+    }
 }
 
 impl<
