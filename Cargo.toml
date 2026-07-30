@@ -1,10 +1,11 @@
 [workspace]
 resolver = "2"
+# Do not publish the demos
 members = [
     "crates/core",
     "crates/wasm-demo",
     "crates/whisper-demo",
-    "crates/llvm-demo"
+    "crates/simple-demo"
 ]
 
 [workspace.dependencies]

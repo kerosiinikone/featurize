@@ -37,7 +37,7 @@ where
 
 /// Executable pipeline with allocated buffers
 ///
-/// TODO: why do internal scratch buffers exist, etc?
+/// TODO: Document why do internal scratch buffers exist, etc?
 #[derive(Debug, Default, Clone)]
 pub struct PipeExec<T, F = f32>
 where
@@ -236,6 +236,18 @@ where
 
         output_buf[..exec_len].copy_from_slice(exec);
         Ok(exec_len)
+    }
+
+    pub fn execute_from_bytes(
+        &mut self,
+        input: &[u8],
+        output_buf: &mut [F],
+    ) -> Result<usize, PipeError>
+    where
+        F: bytemuck::Pod,
+    {
+        let floats: &[F] = bytemuck::try_cast_slice(input)?;
+        self.execute(floats, output_buf)
     }
 
     pub fn output_len(&self) -> usize {
