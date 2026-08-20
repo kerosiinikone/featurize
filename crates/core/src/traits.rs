@@ -9,7 +9,10 @@ mod sealed {
 }
 
 /// Float trait bound for pipeline operations
-pub trait Float: num_traits::Float + num_traits::FloatConst + Default + Copy + 'static {}
+pub trait Float:
+    num_traits::Float + num_traits::FloatConst + Default + Copy + 'static + core::iter::Sum
+{
+}
 impl Float for f32 {}
 impl Float for f64 {}
 
@@ -51,7 +54,7 @@ where
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError>;
 
-    /// Internal -> use with errors for better context
+    /// Internal; use with errors for better context
     fn snapshot(&self) -> alloc::string::String;
 
     /// Computes the maximum buffer size dynamically
@@ -105,8 +108,8 @@ where
     }
 
     /// Get the name of this operation for error context
-    fn op_name(&self) -> &'static str {
-        core::any::type_name::<Self>()
+    fn op_name(&self) -> alloc::string::String {
+        alloc::string::String::from(core::any::type_name::<Self>())
     }
 
     #[inline(always)]
@@ -188,18 +191,20 @@ where
     }
 
     /// Get the name of this operation for error context
-    fn op_name(&self) -> &'static str {
-        core::any::type_name::<Self>()
+    fn op_name(&self) -> alloc::string::String {
+        alloc::string::String::from(core::any::type_name::<Self>())
     }
 
-    /// Map output index to input index (for pure index-remapping operations)
+    /// Map output index to input index (for pure index-remapping operations),
+    /// takes a `default_len` to allow for using in dynamic pipes.
+    ///
     /// Default implementation is identity mapping
     ///
     /// # Contract
     /// For every `out_index < out_len(..)` the returned index must be
     /// `< in_len(..)` -- unchecked reads in fused execution paths rely on it.
     #[inline(always)]
-    fn map_index(&self, out_index: usize) -> usize
+    fn map_index(&self, out_index: usize, _default_len: usize) -> usize
     where
         Self::IndexRemapping: IsTrue,
     {
@@ -343,8 +348,12 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> ElementOp<T> for Fused<U, S, El
         self.curr_op.setup();
     }
 
-    fn op_name(&self) -> &'static str {
-        self.curr_op.op_name()
+    fn op_name(&self) -> alloc::string::String {
+        alloc::format!(
+            "Fused<{}, {}>",
+            self.prev_op.op_name(),
+            self.curr_op.op_name()
+        )
     }
 }
 
@@ -387,8 +396,12 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> TransformOp<T> for Fused<U, S, 
         ElementOp::setup(&self.curr_op);
     }
 
-    fn op_name(&self) -> &'static str {
-        self.curr_op.op_name()
+    fn op_name(&self) -> alloc::string::String {
+        alloc::format!(
+            "Fused<{}, {}>",
+            self.prev_op.op_name(),
+            self.curr_op.op_name()
+        )
     }
 }
 
@@ -444,8 +457,12 @@ impl<T: Float, U: TransformOp<T>, S: ElementOp<T>> TransformOp<T>
         self.prev_op.out_len(default_len)
     }
 
-    fn op_name(&self) -> &'static str {
-        self.curr_op.op_name()
+    fn op_name(&self) -> alloc::string::String {
+        alloc::format!(
+            "Fused<{}, {}>",
+            self.prev_op.op_name(),
+            self.curr_op.op_name()
+        )
     }
 }
 
@@ -462,25 +479,27 @@ where
     const INTERNAL_IS_VALID: bool = S::IN_LEN == U::OUT_LEN || S::IN_LEN == 0 || U::IN_LEN == 0;
 
     #[inline(always)]
-    fn map_index(&self, out_index: usize) -> usize
+    fn map_index(&self, out_index: usize, default_len: usize) -> usize
     where
         Self::IndexRemapping: IsTrue,
     {
         // The `map_index` contract composes: curr_op maps [0, OUT_LEN) into
         // [0, curr_op::in_len) == [0, prev_op::out_len) (validated via
         // INTERNAL_IS_VALID), which prev_op maps into [0, prev_op::in_len)
-        let intermediate_index = self.curr_op.map_index(out_index);
-        self.prev_op.map_index(intermediate_index)
+        self.curr_op.map_index(out_index, default_len)
     }
 
     #[inline(always)]
     fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
-        let input_index = self.map_index(out_index);
-        debug_assert!(input_index < data.len());
+        let intermediate_index = self.map_index(out_index, data.len());
+        debug_assert!(self.prev_op.map_index(intermediate_index, data.len()) < data.len());
         // SAFETY: `out_index < out_len(..)` (caller contract) and the
         // composed `map_index` maps into `[0, in_len(..))` where
         // `in_len(..) == data.len()` (stage contract)
-        Ok(unsafe { *data.get_unchecked(input_index) })
+        //
+        // This is required as the `self.prev_op` might contain a fused
+        // element operation which requires mutating the elements
+        Ok(self.prev_op.compute(data, intermediate_index)?)
     }
 
     #[inline(always)]
@@ -518,8 +537,12 @@ where
         self.curr_op.out_len(default_len)
     }
 
-    fn op_name(&self) -> &'static str {
-        self.curr_op.op_name()
+    fn op_name(&self) -> alloc::string::String {
+        alloc::format!(
+            "Fused<{}, {}>",
+            self.prev_op.op_name(),
+            self.curr_op.op_name()
+        )
     }
 }
 
@@ -713,7 +736,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
 
         let expected_in = self.curr_op.in_len(data_len);
 
-        // The operation in_len must never be zero as it is
+        // The operation `in_len` must never be zero as it is
         // either statically or dynamically set
         if expected_in == 0 || data_len != expected_in {
             return Err(PipeError::with_snapshot(

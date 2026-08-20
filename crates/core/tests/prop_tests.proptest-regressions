@@ -4,7 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 726654655f348b7e13cf73b393ca0d6810854b5fd9aa7015505bd9d9575b569c # shrinks to input = [1.1189606e30], factor1 = 2.3729365e27, factor2 = 1.7188132e36, add_val = 3.9521407e-20
-cc 484c1f216ba31ae9ea0ede7d55b366b5dd5a0dd05e51fef0601ef5dd0223e6ed # shrinks to input = [102.92497], value = 8712895000000.0
-cc d79c6147ecab90a753d25c5e9fe8bcb92981cd415d630f966b0b70c18443e5b9 # shrinks to size1 = 1, size2 = 1, factor = 3.165622e38
-cc d366a53bb955a46c2a32ebaf1edb53790a185159be4a3d03c3b1f6258a2990ba # shrinks to input = [2.8241817e36], mean = 1.9990795e-16, std = 0.0047212816
+cc e69395f6a504815f36c0b5a9cc02e2aee0d464ae4ac4e6294396bdbd571bdae4 # shrinks to input = [419.9965], value = 425.4654

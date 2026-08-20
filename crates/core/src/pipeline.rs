@@ -56,6 +56,57 @@ where
     pub(crate) out_buf: alloc::boxed::Box<[F]>,
 }
 
+/// Object-safe, type-erased view of a built pipeline executor.
+///
+/// The concrete type of a `PipeExec` encodes the full stage composition.
+/// That is what enables compile-time checking and fusion, but it makes the 
+/// type impractical to name.
+///
+/// `PipeExecutor` erases that type behind a vtable while keeping the
+/// pipeline itself fully static and monomorphized internally: the only
+/// runtime cost is a single dynamic dispatch per `execute` call.
+///
+/// Use `PipeExec::boxed` (or the `BoxedPipeExec` alias) to obtain one:
+///
+/// ```ignore
+/// let preprocessor: BoxedPipeExec = Pipeline::new()
+///     .apply_transform(...)
+///     .apply_element(...)
+///     .build()
+///     .boxed();
+/// ```
+///
+/// [`execute`]: PipeExecutor::execute
+// TODO: SEAL!!!
+pub trait PipeExecutor<F: Float = f32> {
+    /// See [`PipeExec::execute`]
+    fn execute(&mut self, input: &[F], output_buf: &mut [F]) -> Result<usize, PipeError>;
+
+    /// See [`PipeExec::output_len`]
+    fn output_len(&self) -> usize;
+}
+
+/// Convenience alias for a boxed, type-erased pipeline executor
+pub type BoxedPipeExec<F = f32> = alloc::boxed::Box<dyn PipeExecutor<F>>;
+
+/// Blanket implementation: every built pipeline executor is a
+/// (type-erasable) `PipeExecutor`
+impl<T, F> PipeExecutor<F> for PipeExec<T, F>
+where
+    T: Stage<F>,
+    F: Float,
+{
+    #[inline(always)]
+    fn execute(&mut self, input: &[F], output_buf: &mut [F]) -> Result<usize, PipeError> {
+        PipeExec::execute(self, input, output_buf)
+    }
+
+    #[inline(always)]
+    fn output_len(&self) -> usize {
+        PipeExec::output_len(self)
+    }
+}
+
 /// Must be documented why the pipeline struct constructors
 /// return a different type with each method.
 impl Pipeline {
@@ -253,6 +304,19 @@ where
     pub fn output_len(&self) -> usize {
         self.stages
             .out_len_dynamic(self.max_expected_input_length.unwrap_or(0))
+    }
+
+    /// Erase the concrete pipeline type behind a [`PipeExecutor`] vtable.
+    ///
+    /// This is the recommended way to *store* a built pipeline (e.g. in a
+    /// struct field of a consumer crate) without naming the deeply nested
+    /// stage type. The pipeline remains fully static internally; only the
+    /// entry point is dynamically dispatched.
+    pub fn boxed(self) -> BoxedPipeExec<F>
+    where
+        T: 'static,
+    {
+        alloc::boxed::Box::new(self)
     }
 }
 

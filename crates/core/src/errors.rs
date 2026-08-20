@@ -32,6 +32,7 @@ impl Default for NanHandling {
     }
 }
 
+// TODO: checked for every value -> kills vectorization
 #[inline(always)]
 pub fn check_finite<T: num_traits::Float>(value: T, handling: NanHandling) -> Result<T, PipeError> {
     if value.is_finite() {

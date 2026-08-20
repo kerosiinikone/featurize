@@ -1,4 +1,8 @@
-use featurize_core::{errors::{NanHandling, check_finite}, prelude::*};
+use featurize_core::{
+    errors::{check_finite, NanHandling},
+    prelude::*,
+    traits::{False, TransformOp},
+};
 
 #[allow(unused_imports)]
 use num_traits::Float as _;
@@ -253,7 +257,6 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
     }
 }
 
-// TODO: in_len and out_len
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformOp
     for LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {
@@ -263,15 +266,34 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformO
     const OUT_LEN: usize = 0;
 
     #[inline(always)]
-    fn execute<'i, 'o>(&self, out: &'o mut [f32], input: &'i [f32], _n: usize) -> Result<&'o mut [f32], PipeError> {
+    fn in_len(&self, default_len: usize) -> usize {
+        default_len
+    }
+
+    #[inline(always)]
+    fn out_len(&self, default_len: usize) -> usize {
+        let n_len = default_len / HOP_LENGTH;
+        let pad = 100 * self.pad_chunk_length / 2;
+        let n_len = if !n_len.is_multiple_of(pad) {
+            (n_len / pad + 1) * pad
+        } else {
+            n_len
+        };
+        let n_len = n_len + pad;
+
+        n_len * N_MEL
+    }
+
+    #[inline(always)]
+    fn execute<'i, 'o>(
+        &self,
+        out: &'o mut [f32],
+        input: &'i [f32],
+        _n: usize,
+    ) -> Result<&'o mut [f32], PipeError> {
         let mel = self.compute_mel_spectrogram(input)?;
         let copy_len = mel.len().min(out.len());
         out[..copy_len].copy_from_slice(&mel[..copy_len]);
         Ok(out)
-    }
-
-    #[inline(always)]
-    fn nan_handling(&self) -> NanHandling {
-        self.nan_handling
     }
 }

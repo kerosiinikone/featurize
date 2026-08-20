@@ -213,13 +213,6 @@ impl Decoder {
                 .decoder_final_linear(&ys.i((..1, seq_len - 1..))?)?
                 .i(0)?
                 .i(0)?;
-            // TODO: Besides suppress tokens, we should apply the heuristics from
-            // ApplyTimestampRules, i.e.:
-            // - Timestamps come in pairs, except before EOT.
-            // - Timestamps should be non-decreasing.
-            // - If the sum of the probabilities of timestamps is higher than any other tokens,
-            //   only consider timestamps when sampling.
-            // https://github.com/openai/whisper/blob/e8622f9afc4eba139bf796c210f5c01081000472/whisper/decoding.py#L439
             let logits = logits.broadcast_add(&self.suppress_tokens)?;
             let next_token = if t > 0f64 {
                 let prs = softmax(&(&logits / t)?, 0)?;
@@ -364,24 +357,28 @@ impl Decoder {
         let single_channel_len = input_len / spec.channels as usize;
         let n_mels = self.model.config().num_mel_bins;
 
+        // `TransformOp` implementation in this crate
         const N_MEL: usize = 80;
-        let mel_op = crate::mel_spectrogram::LogMelSpectrogram::<{ m::N_FFT }, { m::HOP_LENGTH }, N_MEL>::new(
+        let mel_op = crate::mel_spectrogram::LogMelSpectrogram::<
+            { m::N_FFT },
+            { m::HOP_LENGTH },
+            N_MEL,
+        >::new(
             self.mel_filters.clone(),
             false,
             m::CHUNK_LENGTH,
             single_channel_len,
         );
 
-        let pipeline_normalize = Pipeline::new()
-            .apply_point::<_, 176000>(Div {
-                factor: 32768.0,
-                ..Default::default()
-            })
-            .apply_transform(mel_op);
+        // The pipeline needs to be reconstructed based on the
+        // `wav_input` so no need to use `BoxedPipeExec`
+        let mut pipeline_normalize = Pipeline::new()
+            .apply_element::<_, 176000>(Div::new(32768.0))
+            .apply_transform(mel_op)
+            .build();
 
-        let mut pipe_exec = pipeline_normalize.build();
-        let mut mel = vec![0.0f32; pipe_exec.output_len()];
-        let n = pipe_exec.execute(&data, &mut mel)?;
+        let mut mel = vec![0.0f32; pipeline_normalize.output_len()];
+        let n = pipeline_normalize.execute(&data, &mut mel)?;
 
         let mel_len = n;
         let mel = Tensor::from_vec(mel, (1, n_mels, mel_len / n_mels), &device)?;

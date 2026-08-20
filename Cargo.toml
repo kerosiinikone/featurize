@@ -1,11 +1,9 @@
 [workspace]
 resolver = "2"
-# Do not publish the demos
 members = [
     "crates/core",
-    "crates/wasm-demo",
-    "crates/whisper-demo",
-    "crates/simple-demo"
+    "examples/wasm-demo",
+    "examples/whisper-demo"
 ]
 
 [workspace.dependencies]
@@ -25,3 +23,14 @@ strip = "debuginfo"
 
 [profile.release.package.llvm-demo]
 opt-level = 3
+
+[profile.asm]
+inherits = "release"
+opt-level = 3
+lto = false
+codegen-units = 1
+debug = 1
+strip = "none"
+debug-assertions = false
+overflow-checks = false
+incremental = false

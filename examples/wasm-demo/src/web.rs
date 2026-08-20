@@ -25,6 +25,8 @@ pub fn start() {
 #[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub struct Mnist {
     model: Option<Model<Backend>>,
+    // Type-erased view into the pipeline structure
+    preprocessor: BoxedPipeExec<f32>,
 }
 
 #[cfg_attr(target_family = "wasm", wasm_bindgen)]
@@ -33,7 +35,16 @@ impl Mnist {
     #[cfg_attr(target_family = "wasm", wasm_bindgen(constructor))]
     pub fn new() -> Self {
         console_error_panic_hook::set_once();
-        Self { model: None }
+        Self {
+            model: None,
+            preprocessor: Pipeline::new()
+                .apply_transform(Grayscale::<300, 300, 4, f32>::new().with_inversion())
+                .apply_transform(Scale2D::<300, 300, 1, 28, 28, 1, _>::new())
+                .apply_element(Div::new(255.0))
+                .apply_element(Normalize::new(0.3081, 0.1307))
+                .build()
+                .boxed(),
+        }
     }
 
     /// Returns the inference results.
@@ -52,28 +63,15 @@ impl Mnist {
         if self.model.is_none() {
             self.model = Some(build_and_load_model().await);
         }
-
         let mut preprocessed_data = vec![0.0; 28 * 28];
-        let scale = Scale2D::<300, 300, 1, 28, 28, 1>;
-        // vec![300, 300, 4], 4
-        let mut preprocessor = Pipeline::new()
-            .apply_transform(Grayscale::<300, 300, 4> {
-                invert: true,
-                ..Default::default()
-            })
-            .apply_transform(scale)
-            .apply_point(Div {
-                factor: 255.0,
-                ..Default::default()
-            })
-            .apply_point(Normalize {
-                mean: 0.1307,
-                std: 0.3081,
-                ..Default::default()
-            })
-            .build();
 
-        preprocessor.execute(rgba_data, &mut preprocessed_data);
+        if self
+            .preprocessor
+            .execute(rgba_data, &mut preprocessed_data)
+            .is_err()
+        {
+            return Err("Err at pipeline execution".into());
+        }
 
         let preprocessed_array = Array::new();
         for value in preprocessed_data.iter() {
