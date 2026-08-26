@@ -1,10 +1,10 @@
 use crate::{
     _const_max_usize,
-    errors::{ErrorKind, NanHandling, PipeError},
+    errors::{ErrorKind, NanHandler, PipeError},
 };
 
 /// Sealing module to prevent external implementations of Stage
-mod sealed {
+pub(crate) mod sealed {
     pub trait Sealed<T> {}
 }
 
@@ -17,6 +17,14 @@ impl Float for f32 {}
 impl Float for f64 {}
 
 /// The pipeline wrapper encloses these 'stages'
+///
+/// # NaN handling
+///
+/// `execute` is generic over the pipeline-wide [`NanHandler`] policy `N`,
+/// which is forwarded unchanged to every operation. The whole stage tree is
+/// therefore monomorphized once per policy and the computation loops contain
+/// only the statically selected check (or none at all for
+/// [`crate::errors::PropagateNan`]).
 ///
 /// # Buffer-size invariants
 ///
@@ -47,7 +55,7 @@ where
     const OUT_LEN: usize;
     const MAX_BUF_SIZE: usize;
 
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         data: &[T],
         in_buf: &'i mut [T],
@@ -93,19 +101,28 @@ where
 }
 
 /// Point-wise operations that work on individual elements
+///
+/// # NaN handling
+///
+/// `compute` is generic over the pipeline-wide [`NanHandler`] policy. An
+/// implementation must never decide the policy on its own; it simply routes
+/// its result through `N::check_finite(..)`:
+///
+/// ```ignore
+/// fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
+///     N::check_finite(data * self.factor)
+/// }
+/// ```
 pub trait ElementOp<T: Float = f32>
 where
     Self: Sized,
 {
-    fn compute(&self, data: T) -> Result<T, PipeError>;
+    /// Compute output value for a given input value of type `T`
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError>;
 
+    /// Setup the operation right before `execute`
     #[inline(always)]
     fn setup(&self) {}
-
-    /// Get the NaN handling policy for this operation
-    fn nan_handling(&self) -> NanHandling {
-        NanHandling::Fail
-    }
 
     /// Get the name of this operation for error context
     fn op_name(&self) -> alloc::string::String {
@@ -149,6 +166,13 @@ impl IsTrue for True {}
 
 /// Spatial transformation operations that map from output index to computed value by sampling from input
 ///
+/// # NaN handling
+///
+/// Just like [`ElementOp`], `compute` / `execute` are generic over the
+/// pipeline-wide [`NanHandler`] policy `N`. Pure index remappings never
+/// produce new values and can simply ignore `N`; anything doing arithmetic
+/// must route its result through `N::check_finite(..)`.
+///
 /// # Implementor contract (relied upon by unchecked stage loops)
 ///
 /// The stages guarantee, before dispatching into an op:
@@ -185,11 +209,6 @@ where
     /// pipes). Ops may cite this in `// SAFETY:` comments.
     const INTERNAL_IS_VALID: bool = true;
 
-    /// Get the NaN handling policy for this operation
-    fn nan_handling(&self) -> NanHandling {
-        NanHandling::Fail
-    }
-
     /// Get the name of this operation for error context
     fn op_name(&self) -> alloc::string::String {
         alloc::string::String::from(core::any::type_name::<Self>())
@@ -218,7 +237,7 @@ where
     /// `data.len() == in_len(..)`; the stage `execute` implementations verify
     /// this via `in_len()` / `out_len()` before entering their loops.
     #[inline(always)]
-    fn compute(&self, data: &[T], index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], index: usize) -> Result<T, PipeError> {
         debug_assert!(index < data.len());
         // SAFETY: by the contract above `index < out_len(..)`, and for the
         // default identity mapping `out_len(..) <= in_len(..) == data.len()`
@@ -231,14 +250,14 @@ where
     ///
     /// Callers (the `Stage` impls) guarantee `out.len() == n == out_len(..)`
     /// and `input.len() == in_len(..)`.
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError>;
 
-    /// Runtime setup / initialization method for operations
+    /// Setup the operation right before `execute`
     #[inline(always)]
     fn setup(&self) {}
 
@@ -336,9 +355,9 @@ pub struct Fused<T, S, FusedState = ElementElement> {
 
 impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> ElementOp<T> for Fused<U, S, ElementElement> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
-        let prev = self.prev_op.compute(data)?;
-        self.curr_op.compute(prev)
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
+        let prev = self.prev_op.compute::<N>(data)?;
+        self.curr_op.compute::<N>(prev)
     }
 
     #[inline(always)]
@@ -361,19 +380,19 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> TransformOp<T> for Fused<U, S, 
     type IndexRemapping = False;
 
     #[inline(always)]
-    fn compute(&self, data: &[T], index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], index: usize) -> Result<T, PipeError> {
         debug_assert!(index < data.len());
         // SAFETY: per the TransformOp contract the caller guarantees
         // `index < out_len(..)` and, for element ops,
         // `out_len(..) == in_len(..) == data.len()`
         let prev = self
             .prev_op
-            .compute(unsafe { *data.get_unchecked(index) })?;
-        self.curr_op.compute(prev)
+            .compute::<N>(unsafe { *data.get_unchecked(index) })?;
+        self.curr_op.compute::<N>(prev)
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -384,7 +403,8 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> TransformOp<T> for Fused<U, S, 
             // SAFETY: the stage guarantees `out.len() == n` and
             // `input.len() == in_len(..) >= n` before dispatching here
             unsafe {
-                *out.get_unchecked_mut(out_index) = TransformOp::compute(self, input, out_index)?;
+                *out.get_unchecked_mut(out_index) =
+                    <Self as TransformOp<T>>::compute::<N>(self, input, out_index)?;
             }
         }
         Ok(out)
@@ -415,15 +435,15 @@ impl<T: Float, U: TransformOp<T>, S: ElementOp<T>> TransformOp<T>
     const INTERNAL_IS_VALID: bool = U::INTERNAL_IS_VALID;
 
     #[inline(always)]
-    fn compute(&self, data: &[T], index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], index: usize) -> Result<T, PipeError> {
         // Delegates the input access to `prev_op.compute`, which upholds (or
         // checks) its own bound contract
-        let prev = self.prev_op.compute(data, index)?;
-        self.curr_op.compute(prev)
+        let prev = self.prev_op.compute::<N>(data, index)?;
+        self.curr_op.compute::<N>(prev)
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -435,7 +455,8 @@ impl<T: Float, U: TransformOp<T>, S: ElementOp<T>> TransformOp<T>
             // the input access is performed by `prev_op.compute` under the
             // TransformOp contract (`input.len() == in_len(..)`)
             unsafe {
-                *out.get_unchecked_mut(out_index) = TransformOp::compute(self, input, out_index)?;
+                *out.get_unchecked_mut(out_index) =
+                    <Self as TransformOp<T>>::compute::<N>(self, input, out_index)?;
             }
         }
         Ok(out)
@@ -490,7 +511,7 @@ where
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let intermediate_index = self.map_index(out_index, data.len());
         debug_assert!(self.prev_op.map_index(intermediate_index, data.len()) < data.len());
         // SAFETY: `out_index < out_len(..)` (caller contract) and the
@@ -499,11 +520,11 @@ where
         //
         // This is required as the `self.prev_op` might contain a fused
         // element operation which requires mutating the elements
-        Ok(self.prev_op.compute(data, intermediate_index)?)
+        Ok(self.prev_op.compute::<N>(data, intermediate_index)?)
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -515,7 +536,8 @@ where
             // the input access is bounded by the `map_index` contract (see
             // `compute`)
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) =
+                    <Self as TransformOp<T>>::compute::<N>(self, input, out_index)?;
             }
         }
         Ok(out)
@@ -557,7 +579,7 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
     const MAX_BUF_SIZE: usize = INPUT_LEN;
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         data: &[T],
         _in_buf: &'i mut [T],
@@ -591,7 +613,8 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
         // read nor the write can go out of bounds
         for i in 0..exec_len {
             unsafe {
-                *out_buf.get_unchecked_mut(i) = self.root_op.compute(*data.get_unchecked(i))?;
+                *out_buf.get_unchecked_mut(i) =
+                    self.root_op.compute::<N>(*data.get_unchecked(i))?;
             }
         }
         Ok(&out_buf[..exec_len])
@@ -634,7 +657,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
     const MAX_BUF_SIZE: usize = _const_max_usize(INPUT_LEN, U::OUT_LEN);
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         data: &[T],
         _in_buf: &'i mut [T],
@@ -684,7 +707,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
         // The TransformOp contract now holds: `data.len() == in_len(..)`
         // and `out.len() == n == out_len(..)` -- the op's execute may rely
         // on exactly these bounds and must not access anything beyond them
-        Ok(self.root_op.execute(out, data, n)?)
+        Ok(self.root_op.execute::<N>(out, data, n)?)
     }
 
     #[inline(always)]
@@ -711,13 +734,13 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
     const MAX_BUF_SIZE: usize = _const_max_usize(S::MAX_BUF_SIZE, U::OUT_LEN);
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         data: &[T],
         in_buf: &'i mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError> {
-        let prev_out = self.prev_stage.execute(data, out_buf, in_buf)?;
+        let prev_out = self.prev_stage.execute::<N>(data, out_buf, in_buf)?;
         self.curr_op.setup();
 
         let data_len = if Self::IN_LEN > 0 {
@@ -762,7 +785,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
         // `out.len() == n == out_len(..)`. `prev_out` borrows `in_buf` while
         // `out` borrows `out_buf`; the buffers are distinct allocations, so
         // no aliasing occurs
-        Ok(self.curr_op.execute(out, prev_out, n)?)
+        Ok(self.curr_op.execute::<N>(out, prev_out, n)?)
     }
 
     #[inline(always)]
@@ -793,13 +816,13 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T>
     const MAX_BUF_SIZE: usize = S::MAX_BUF_SIZE;
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         data: &[T],
         in_buf: &'i mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError> {
-        let prev_out = self.prev_stage.execute(data, out_buf, in_buf)?;
+        let prev_out = self.prev_stage.execute::<N>(data, out_buf, in_buf)?;
         self.curr_op.setup();
 
         let n = prev_out.len();
@@ -818,7 +841,8 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T>
         // distinct allocations, so no aliasing occurs
         for i in 0..n {
             unsafe {
-                *out_buf.get_unchecked_mut(i) = self.curr_op.compute(*prev_out.get_unchecked(i))?;
+                *out_buf.get_unchecked_mut(i) =
+                    self.curr_op.compute::<N>(*prev_out.get_unchecked(i))?;
             }
         }
         Ok(&out_buf[..n])

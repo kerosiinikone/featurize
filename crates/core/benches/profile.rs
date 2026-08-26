@@ -158,6 +158,102 @@ fn bench_element_path(c: &mut Criterion) {
     group.finish();
 }
 
+/// Direct comparison of the monomorphized NaN policies on an otherwise
+/// identical element pipeline.
+///
+/// `FailOnNan` keeps an early exit in the loop body (blocking
+/// vectorization), `ZeroOnNan` lowers to a branchless select, and
+/// `PropagateNan` emits no check at all -- it should track the naive
+/// baseline in `mnist_preprocess`.
+fn bench_nan_policy(c: &mut Criterion) {
+    let input = make_batch(BATCH * IMAGE_LEN);
+
+    let mut out_fail = vec![0.0f32; BATCH * IMAGE_LEN];
+    let mut out_zero = vec![0.0f32; BATCH * IMAGE_LEN];
+    let mut out_propagate = vec![0.0f32; BATCH * IMAGE_LEN];
+
+    let mut pipe_fail = Pipeline::new_with::<f32, FailOnNan>()
+        .apply_element::<Div, IMAGE_LEN>(Div::new(255.0))
+        .apply_element(Normalize::new(MNIST_STD, MNIST_MEAN))
+        .apply_element(Clamp::new(CLAMP_MIN, CLAMP_MAX))
+        .build();
+
+    let mut pipe_zero = Pipeline::new_with::<f32, ZeroOnNan>()
+        .apply_element::<Div, IMAGE_LEN>(Div::new(255.0))
+        .apply_element(Normalize::new(MNIST_STD, MNIST_MEAN))
+        .apply_element(Clamp::new(CLAMP_MIN, CLAMP_MAX))
+        .build();
+
+    let mut pipe_propagate = Pipeline::new_with::<f32, PropagateNan>()
+        .apply_element::<Div, IMAGE_LEN>(Div::new(255.0))
+        .apply_element(Normalize::new(MNIST_STD, MNIST_MEAN))
+        .apply_element(Clamp::new(CLAMP_MIN, CLAMP_MAX))
+        .build();
+
+    // The input is entirely finite, so all three policies must agree
+    for (src, dst) in input
+        .chunks_exact(IMAGE_LEN)
+        .zip(out_fail.chunks_exact_mut(IMAGE_LEN))
+    {
+        pipe_fail.execute(src, dst).unwrap();
+    }
+    for (src, dst) in input
+        .chunks_exact(IMAGE_LEN)
+        .zip(out_zero.chunks_exact_mut(IMAGE_LEN))
+    {
+        pipe_zero.execute(src, dst).unwrap();
+    }
+    for (src, dst) in input
+        .chunks_exact(IMAGE_LEN)
+        .zip(out_propagate.chunks_exact_mut(IMAGE_LEN))
+    {
+        pipe_propagate.execute(src, dst).unwrap();
+    }
+    verify_equivalence("nan_policy(zero vs fail)", &out_zero, &out_fail);
+    verify_equivalence("nan_policy(propagate vs fail)", &out_propagate, &out_fail);
+
+    let mut group = c.benchmark_group("nan_policy");
+    group.throughput(Throughput::Elements((BATCH * IMAGE_LEN) as u64));
+
+    group.bench_function("fail_on_nan", |b| {
+        b.iter(|| {
+            for (src, dst) in std::hint::black_box(&input)
+                .chunks_exact(IMAGE_LEN)
+                .zip(out_fail.chunks_exact_mut(IMAGE_LEN))
+            {
+                pipe_fail.execute(src, dst).unwrap();
+            }
+            std::hint::black_box(&out_fail);
+        })
+    });
+
+    group.bench_function("zero_on_nan", |b| {
+        b.iter(|| {
+            for (src, dst) in std::hint::black_box(&input)
+                .chunks_exact(IMAGE_LEN)
+                .zip(out_zero.chunks_exact_mut(IMAGE_LEN))
+            {
+                pipe_zero.execute(src, dst).unwrap();
+            }
+            std::hint::black_box(&out_zero);
+        })
+    });
+
+    group.bench_function("propagate_nan", |b| {
+        b.iter(|| {
+            for (src, dst) in std::hint::black_box(&input)
+                .chunks_exact(IMAGE_LEN)
+                .zip(out_propagate.chunks_exact_mut(IMAGE_LEN))
+            {
+                pipe_propagate.execute(src, dst).unwrap();
+            }
+            std::hint::black_box(&out_propagate);
+        })
+    });
+
+    group.finish();
+}
+
 fn bench_canvas_path(c: &mut Criterion) {
     let mut input = make_batch(CANVAS_BATCH * SRC_LEN);
     set_opaque_alpha(&mut input);
@@ -166,7 +262,7 @@ fn bench_canvas_path(c: &mut Criterion) {
     let mut naive_out = vec![0.0f32; CANVAS_BATCH * IMAGE_LEN];
     let mut naive_scratch = vec![0.0f32; SCALED_LEN];
 
-    let mut pipe = Pipeline::new()
+    let mut pipe = Pipeline::new_with::<f32, PropagateNan>()
         .apply_transform(Scale2D::<SRC_W, SRC_H, SRC_C, WIDTH, HEIGHT, SRC_C, f32>::new())
         .apply_transform(Grayscale::<WIDTH, HEIGHT, SRC_C, f32>::new())
         .apply_element(Div::new(255.0))
@@ -220,6 +316,7 @@ fn bench_canvas_path(c: &mut Criterion) {
 
 fn criterion_benchmark(c: &mut Criterion) {
     bench_element_path(c);
+    bench_nan_policy(c);
     bench_canvas_path(c);
 }
 

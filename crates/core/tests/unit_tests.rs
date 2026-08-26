@@ -1,3 +1,4 @@
+use featurize_core::errors::NanHandler;
 use featurize_core::prelude::*;
 
 /// Unit tests for the core library functionality
@@ -26,8 +27,9 @@ impl<T: Float> TransformOp<T> for Identity {
         default_len
     }
 
+    /// Pure copy: the pipeline NaN policy `N` is irrelevant here
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -66,7 +68,7 @@ impl<T: Float> TransformOp<T> for Doubler {
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -104,14 +106,14 @@ impl<T: Float> TransformOp<T> for ErrorOp {
     }
 
     #[inline(always)]
-    fn compute(&self, _data: &[T], _index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, _data: &[T], _index: usize) -> Result<T, PipeError> {
         Err(PipeError::new(
             featurize_core::errors::ErrorKind::InvalidInputSize,
         ))
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         _out: &'o mut [T],
         _input: &'i [T],
@@ -125,6 +127,7 @@ impl<T: Float> TransformOp<T> for ErrorOp {
 
 #[cfg(test)]
 mod unit_tests {
+    use featurize_core::errors::{PropagateNan, ZeroOnNan};
     use featurize_core::prelude::*;
 
     // NOTE: empty static inputs get a compile error and are
@@ -506,11 +509,15 @@ mod unit_tests {
         let mut out_buf = vec![0f32; 3];
         let in_buf = vec![1.0, f32::NAN, 3.0];
 
+        // `Pipeline::new()` defaults to the fail-fast policy
         let mut pipe = Pipeline::new()
-            .apply_element::<_, 3>(
-                Multiply::new(2.0).set_nan_handling(featurize_core::errors::NanHandling::Fail),
-            )
+            .apply_element::<_, 3>(Multiply::new(2.0))
             .build();
+
+        assert_eq!(
+            pipe.nan_handling(),
+            featurize_core::errors::NanHandling::Fail
+        );
 
         let result = pipe.execute(&in_buf, &mut out_buf);
 
@@ -525,11 +532,15 @@ mod unit_tests {
         let mut out_buf = vec![0f32; 3];
         let in_buf = vec![1.0, f32::NAN, 3.0];
 
-        let mut pipe = Pipeline::new()
-            .apply_element::<_, 3>(
-                Multiply::new(2.0).set_nan_handling(featurize_core::errors::NanHandling::Zero),
-            )
+        // Pipeline-wide, compile-time policy
+        let mut pipe = Pipeline::new_with::<f32, ZeroOnNan>()
+            .apply_element::<_, 3>(Multiply::new(2.0))
             .build();
+
+        assert_eq!(
+            pipe.nan_handling(),
+            featurize_core::errors::NanHandling::Zero
+        );
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
 
@@ -540,14 +551,51 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_nan_handling_propagate() {
+        let mut out_buf = vec![0f32; 3];
+        let in_buf = vec![1.0, f32::NAN, 3.0];
+
+        let mut pipe = Pipeline::new_with::<f32, PropagateNan>()
+            .apply_element::<_, 3>(Multiply::new(2.0))
+            .build();
+
+        assert_eq!(
+            pipe.nan_handling(),
+            featurize_core::errors::NanHandling::Propagate
+        );
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 3);
+        assert_eq!(out_buf[0], 2.0);
+        assert!(out_buf[1].is_nan());
+        assert_eq!(out_buf[2], 6.0);
+    }
+
+    #[test]
+    fn test_nan_handling_selected_via_builder() {
+        let mut out_buf = vec![0f32; 3];
+        let in_buf = vec![1.0, f32::NAN, 3.0];
+
+        // Equivalent to `Pipeline::new_with::<f32, ZeroOnNan>()`
+        let mut pipe = Pipeline::new::<f32>()
+            .nan_handling::<ZeroOnNan>()
+            .apply_element::<_, 3>(Multiply::new(2.0))
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 3);
+        assert_eq!(out_buf[1], 0.0);
+    }
+
+    #[test]
     fn test_infinity_handling() {
         let mut out_buf = vec![0f32; 3];
         let in_buf = vec![1.0, f32::INFINITY, 3.0];
 
-        let mut pipe = Pipeline::new()
-            .apply_element::<_, 3>(
-                Multiply::new(2.0).set_nan_handling(featurize_core::errors::NanHandling::Zero),
-            )
+        let mut pipe = Pipeline::new_with::<f32, ZeroOnNan>()
+            .apply_element::<_, 3>(Multiply::new(2.0))
             .build();
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -565,10 +613,8 @@ mod unit_tests {
         let mut out_buf = vec![0f32; 3];
         let in_buf = vec![1.0, 2.0, 3.0];
 
-        let mut pipe = Pipeline::new()
-            .apply_element::<_, 3>(
-                Div::new(1e-10).set_nan_handling(featurize_core::errors::NanHandling::Zero),
-            )
+        let mut pipe = Pipeline::new_with::<f32, ZeroOnNan>()
+            .apply_element::<_, 3>(Div::new(1e-10))
             .build();
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -1094,6 +1140,21 @@ mod unit_tests {
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn test_dynamic_nan_policy_selection() {
+        let mut out_buf = vec![0f32; 4];
+        let in_buf = vec![1.0, f32::NAN, 3.0, f32::NEG_INFINITY];
+
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(2.0))
+            .build_dynamic(8);
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        assert_eq!(out_buf, vec![2.0, 0.0, 6.0, 0.0]);
     }
 
     // Buffer safety / aliasing tests

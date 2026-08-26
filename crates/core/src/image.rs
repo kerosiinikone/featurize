@@ -1,5 +1,5 @@
 use crate::{
-    errors::{check_finite, ErrorKind, NanHandling, PipeError},
+    errors::{ErrorKind, NanHandler, PipeError},
     traits::{False, Float, IsTrue, TransformOp, True},
 };
 
@@ -19,7 +19,6 @@ pub enum ChannelLayout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> {
     invert: bool,
-    nan_handling: NanHandling,
     marker: core::marker::PhantomData<T>,
 }
 
@@ -30,17 +29,11 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float>
         Self {
             invert: false,
             marker: core::marker::PhantomData,
-            nan_handling: NanHandling::default(),
         }
     }
 
     pub fn with_inversion(mut self) -> Self {
         self.invert = true;
-        self
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
         self
     }
 }
@@ -52,7 +45,6 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Default
         Self {
             invert: false,
             marker: core::marker::PhantomData,
-            nan_handling: NanHandling::default(),
         }
     }
 }
@@ -77,7 +69,7 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float>
             assert!(IN_C != 0, "No channels");
         }
         match IN_C {
-            3 | 4 if channels.len() >= 3 => {
+            3 | 4 => {
                 let r = self.apply_inversion(channels[0]);
                 let g = self.apply_inversion(channels[1]);
                 let b = self.apply_inversion(channels[2]);
@@ -105,7 +97,7 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Transfor
     const OUT_LEN: usize = IN_W * IN_H;
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -124,14 +116,14 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Transfor
             unsafe {
                 let in_chunk = core::slice::from_raw_parts(input.as_ptr().add(base_idx), IN_C);
                 let luminance = self.compute_luminance(in_chunk);
-                *out.get_unchecked_mut(i) = check_finite(luminance, self.nan_handling)?;
+                *out.get_unchecked_mut(i) = N::check_finite(luminance)?;
             }
         }
         Ok(out)
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let base_idx = out_index * IN_C;
         debug_assert!(base_idx + IN_C <= data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == IN_W * IN_H`,
@@ -141,7 +133,7 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Transfor
             let in_chunk = core::slice::from_raw_parts(data.as_ptr().add(base_idx), IN_C);
             self.compute_luminance(in_chunk)
         };
-        check_finite(luminance, self.nan_handling)
+        N::check_finite(luminance)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -183,7 +175,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -195,14 +187,15 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             // the input access is bounded by the `map_index` contract (see
             // `compute`)
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
     }
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let in_index = <HwcToChw<W, H, C, T> as TransformOp<T>>::map_index(self, out_index, 0);
         debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
@@ -252,7 +245,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -264,14 +257,15 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             // the input access is bounded by the `map_index` contract (see
             // `compute`)
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
     }
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let in_index = <ChwToHwc<W, H, C, T> as TransformOp<T>>::map_index(self, out_index, 0);
         debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
@@ -292,7 +286,6 @@ pub struct NormalizePerChannel<const W: usize, const H: usize, const C: usize, T
     mean: [T; C],
     std: [T; C],
     layout: ChannelLayout,
-    nan_handling: NanHandling,
 }
 
 impl<const W: usize, const H: usize, const C: usize, T: Float> NormalizePerChannel<W, H, C, T> {
@@ -301,18 +294,12 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> NormalizePerChann
             mean,
             std,
             layout: ChannelLayout::default(),
-            nan_handling: NanHandling::default(),
         }
     }
 
     // Takes ownership in the `TransformOp<_>` impl, hence not a mutable reference.
     pub fn with_layout(mut self, layout: ChannelLayout) -> Self {
         self.layout = layout;
-        self
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
         self
     }
 
@@ -334,7 +321,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     const OUT_LEN: usize = W * H * C;
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -354,14 +341,14 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             unsafe {
                 let result = (*input.get_unchecked(i) - *self.mean.get_unchecked(c))
                     / *self.std.get_unchecked(c);
-                *out.get_unchecked_mut(i) = check_finite(result, self.nan_handling)?;
+                *out.get_unchecked_mut(i) = N::check_finite(result)?;
             }
         }
         Ok(out)
     }
 
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let c = self.channel_of(out_index);
         debug_assert!(out_index < data.len());
         debug_assert!(c < C);
@@ -371,7 +358,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             (*data.get_unchecked(out_index) - *self.mean.get_unchecked(c))
                 / *self.std.get_unchecked(c)
         };
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -433,7 +420,7 @@ impl<
     const INTERNAL_IS_VALID: bool = OUT_C <= IN_C;
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -448,14 +435,15 @@ impl<
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by the index math in `compute`
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
     }
 
+    /// Nearest-neighbor sampling never creates a new value: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         debug_assert!(out_index < OUT_W * OUT_H * OUT_C);
 
         let out_c = if OUT_C > 1 { out_index % OUT_C } else { 0 };
@@ -537,7 +525,7 @@ impl<
     const INTERNAL_IS_VALID: bool = OUT_C <= IN_C && IN_W > 0 && IN_H > 0 && OUT_W > 0 && OUT_H > 0;
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -552,7 +540,7 @@ impl<
             // SAFETY: `out_index < n <= out.len()` (checked above); the reads
             // are bounded by the index math in `compute`
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
@@ -560,7 +548,7 @@ impl<
 
     // TODO: see the casts!
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         debug_assert!(out_index < OUT_W * OUT_H * OUT_C);
 
         let out_c = if OUT_C > 1 { out_index % OUT_C } else { 0 };
@@ -611,7 +599,8 @@ impl<
 
         let top = v00 + (v10 - v00) * fx;
         let bottom = v01 + (v11 - v01) * fx;
-        Ok(top + (bottom - top) * fy)
+        // Interpolation is arithmetic, so the pipeline-wide policy applies
+        N::check_finite(top + (bottom - top) * fy)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -681,8 +670,9 @@ impl<
     /// runtime offsets (those are validated in `execute` / `compute`)
     const INTERNAL_IS_VALID: bool = OUT_W <= IN_W && OUT_H <= IN_H;
 
+    /// Pure (offset) sampling: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let out_c = out_index % IN_C;
         let pixel_index = out_index / IN_C;
         let out_x = pixel_index % OUT_W;
@@ -700,7 +690,7 @@ impl<
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -822,8 +812,9 @@ impl<
     const IN_LEN: usize = IN_W * IN_H * C;
     const OUT_LEN: usize = OUT_W * OUT_H * C;
 
+    /// Sampling / padding only: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         debug_assert!(out_index < OUT_W * OUT_H * C);
 
         let out_c = out_index % C;
@@ -854,7 +845,7 @@ impl<
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -869,7 +860,7 @@ impl<
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by the index math in `compute`
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
@@ -902,8 +893,9 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     const IN_LEN: usize = W * H * C;
     const OUT_LEN: usize = W * H * C;
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         // The rotated image is `H` pixels wide and `W` pixels tall
@@ -924,7 +916,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -939,7 +931,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by the index math in `compute`
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
@@ -964,8 +956,9 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     const IN_LEN: usize = W * H * C;
     const OUT_LEN: usize = W * H * C;
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % W;
@@ -984,7 +977,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -999,7 +992,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by the index math in `compute`
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
@@ -1024,8 +1017,9 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     const IN_LEN: usize = W * H * C;
     const OUT_LEN: usize = W * H * C;
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % W;
@@ -1044,7 +1038,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -1059,7 +1053,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by the index math in `compute`
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)

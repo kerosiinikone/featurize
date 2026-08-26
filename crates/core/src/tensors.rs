@@ -2,9 +2,8 @@
 mod burn_ext {
     use burn::tensor::backend::{Backend, BackendTypes};
     use burn::tensor::{Element, Shape, Tensor, TensorData};
-    use bytemuck::PodCastError;
 
-    use crate::errors::{ErrorKind, PipeError};
+    use crate::errors::{ErrorKind, NanHandler, PipeError};
     use crate::pipeline::PipeExec;
     use crate::traits::{Float, Stage};
 
@@ -15,6 +14,10 @@ mod burn_ext {
     /// element type `F` is preserved end-to-end; any dtype conversion is
     /// deferred to the backend, which is a no-op when `F` matches the
     /// backend's float element type.
+    ///
+    /// The pipeline-wide NaN policy is applied exactly as in
+    /// [`PipeExec::execute`]: the stage tree is monomorphized for the
+    /// handler chosen at construction time.
     pub trait IntoBurnTensor<F: Float = f32> {
         fn to_burn_tensor<B, const D: usize>(
             &mut self,
@@ -38,7 +41,7 @@ mod burn_ext {
             F: bytemuck::Pod;
     }
 
-    impl<F: Float + Element, S: Stage<F>> IntoBurnTensor<F> for PipeExec<S, F> {
+    impl<F: Float + Element, S: Stage<F>, N: NanHandler> IntoBurnTensor<F> for PipeExec<S, N, F> {
         fn to_burn_tensor<B, const D: usize>(
             &mut self,
             input: &[F],
@@ -48,9 +51,10 @@ mod burn_ext {
         where
             B: BackendTypes + Backend,
         {
+            // `N` is the pipeline-wide, compile-time NaN policy
             let exec = self
                 .stages
-                .execute(input, &mut self.in_buf, &mut self.out_buf)?;
+                .execute::<N>(input, &mut self.in_buf, &mut self.out_buf)?;
 
             // Pre-validate the requested shape against the actual output
             // length so a mismatch surfaces as a PipeError instead of a
@@ -91,11 +95,10 @@ mod burn_ext {
 
 #[cfg(feature = "candle")]
 mod candle_ext {
-    use bytemuck::PodCastError;
     use candle_core::{shape::ShapeWithOneHole, Device, Error, Tensor, WithDType};
 
     use crate::{
-        errors::{ErrorKind::CandleTensorError, PipeError},
+        errors::{ErrorKind::CandleTensorError, NanHandler, PipeError},
         pipeline::PipeExec,
         traits::{Float, Stage},
     };
@@ -112,6 +115,10 @@ mod candle_ext {
     /// the pipeline's scratch buffer into the tensor-owned storage) and
     /// preserves the native dtype of `F` (e.g. `f32` stays `F32`). The
     /// requested `shape` may contain a single "hole", e.g. `((), 80, 3000)`.
+    ///
+    /// The pipeline-wide NaN policy is applied exactly as in
+    /// [`PipeExec::execute`]: the stage tree is monomorphized for the
+    /// handler chosen at construction time.
     pub trait IntoCandleTensor<F: Float = f32> {
         fn to_candle_tensor<S: ShapeWithOneHole>(
             &mut self,
@@ -132,16 +139,17 @@ mod candle_ext {
             F: bytemuck::Pod;
     }
 
-    impl<F: Float + WithDType, T: Stage<F>> IntoCandleTensor<F> for PipeExec<T, F> {
+    impl<F: Float + WithDType, T: Stage<F>, N: NanHandler> IntoCandleTensor<F> for PipeExec<T, N, F> {
         fn to_candle_tensor<S: ShapeWithOneHole>(
             &mut self,
             input: &[F],
             shape: S,
             device: &Device,
         ) -> Result<Tensor, PipeError> {
+            // `N` is the pipeline-wide, compile-time NaN policy
             let exec = self
                 .stages
-                .execute(input, &mut self.in_buf, &mut self.out_buf)?;
+                .execute::<N>(input, &mut self.in_buf, &mut self.out_buf)?;
 
             // Single copy directly from the pipeline scratch buffer into the
             // tensor storage, preserving the native dtype of `F`. No f64

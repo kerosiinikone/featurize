@@ -1,14 +1,19 @@
 use featurize_core::{
-    errors::{
-        ErrorKind,
-        NanHandling::{self},
-    },
+    errors::{ErrorKind, PropagateNan, ZeroOnNan},
     image::*,
     prelude::*,
 };
 use proptest::prelude::*;
 
 /// Pipeline prop tests for input variety checking
+///
+/// NOTE: the NaN / infinity policy is a *pipeline-wide, compile-time*
+/// choice now, so it is selected at construction:
+///
+/// * `Pipeline::new()` / `Pipeline::with_dynamic()` -> fail fast,
+/// * `Pipeline::new_with::<F, ZeroOnNan>()` /
+///   `Pipeline::with_dynamic_and::<F, ZeroOnNan>()` -> replace with zero,
+/// * `..::<F, PropagateNan>()` -> IEEE 754 passthrough.
 
 fn valid_f32() -> impl Strategy<Value = f32> {
     -1e6f32..1e6f32
@@ -32,8 +37,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
+        // Default policy is fail-fast
         let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Fail))
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -51,10 +57,10 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor1).set_nan_handling(NanHandling::Zero))
-            .apply_element(Div::new(factor2).set_nan_handling(NanHandling::Zero))
-            .apply_element(Add::new(add_val).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor1))
+            .apply_element(Div::new(factor2))
+            .apply_element(Add::new(add_val))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -74,8 +80,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -101,14 +107,42 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
+        // Default policy is fail-fast
         let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Fail))
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
         prop_assert!(result.is_err());
         if let Err(e) = result {
             prop_assert!(matches!(e.kind(), ErrorKind::NaN));
+        }
+    }
+
+    #[test]
+    fn prop_nan_handling_propagate_passes_nan_through(
+        mut input in prop::collection::vec(safe_f32(), 1..100),
+        nan_index in 0usize..100
+    ) {
+        if input.is_empty() { return Ok(()); }
+        let len = input.len();
+        let idx = nan_index % len;
+        input[idx] = f32::NAN;
+
+        let mut out_buf = vec![0f32; len];
+
+        let mut pipe = Pipeline::with_dynamic_and::<f32, PropagateNan>()
+            .apply_element(Multiply::new(2.0))
+            .build_dynamic(len);
+
+        let result = pipe.execute(&input, &mut out_buf);
+        prop_assert!(result.is_ok());
+        prop_assert!(out_buf[idx].is_nan());
+
+        for i in 0..len {
+            if i != idx {
+                prop_assert_eq!(out_buf[i], input[i] * 2.0);
+            }
         }
     }
 
@@ -141,15 +175,15 @@ proptest! {
         let len = input.len();
 
         let mut out1 = vec![0f32; len];
-        let mut pipe1 = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(a).set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(b).set_nan_handling(NanHandling::Zero))
+        let mut pipe1 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(a))
+            .apply_element(Multiply::new(b))
             .build_dynamic(len);
         pipe1.execute(&input, &mut out1)?;
 
         let mut out2 = vec![0f32; len];
-        let mut pipe2 = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(a*b).set_nan_handling(NanHandling::Zero))
+        let mut pipe2 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(a*b))
             .build_dynamic(len);
         pipe2.execute(&input, &mut out2)?;
 
@@ -171,9 +205,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Add::new(value).set_nan_handling(NanHandling::Zero))
-            .apply_element(Subtract::new(value).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Add::new(value))
+            .apply_element(Subtract::new(value))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -194,9 +228,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
-            .apply_element(Div::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
+            .apply_element(Div::new(factor))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -240,8 +274,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Clamp::new(min, max).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Clamp::new(min, max))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -259,8 +293,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Pow::new(2.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Pow::new(2.0))
             .apply_element(Sqrt::default())
             .build_dynamic(len);
 
@@ -284,8 +318,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len / 2];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -304,8 +338,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Normalize::new(std, mean).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Normalize::new(std, mean))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -325,8 +359,8 @@ proptest! {
     ) {
         let max_size = size1.max(size2);
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
             .build_dynamic(max_size);
 
         let input1 = vec![1.0f32; size1];
@@ -354,8 +388,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -370,8 +404,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -389,8 +423,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(2.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(2.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -410,9 +444,9 @@ proptest! {
         let len = input.len();
 
         let mut out_fused = vec![0f32; len];
-        let mut pipe_fused = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor1).set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(factor2).set_nan_handling(NanHandling::Zero))
+        let mut pipe_fused = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor1))
+            .apply_element(Multiply::new(factor2))
             .build_dynamic(len);
         pipe_fused.execute(&input, &mut out_fused)?;
 
@@ -440,8 +474,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -471,8 +505,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Add::new(value).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Add::new(value))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -495,8 +529,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Pow::new(exponent).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Pow::new(exponent))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -520,9 +554,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor1).set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(factor2).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor1))
+            .apply_element(Multiply::new(factor2))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -555,8 +589,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Normalize::new(std, mean).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Normalize::new(std, mean))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -579,8 +613,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Div::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Div::new(factor))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -603,8 +637,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Subtract::new(value).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Subtract::new(value))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -696,8 +730,8 @@ proptest! {
         let mut out_buf1 = vec![0f32; len];
         let mut out_buf2 = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Clamp::new(min, max).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Clamp::new(min, max))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf1)?;
@@ -737,10 +771,10 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Normalize::new(std, mean).set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(std).set_nan_handling(NanHandling::Zero))
-            .apply_element(Add::new(mean).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Normalize::new(std, mean))
+            .apply_element(Multiply::new(std))
+            .apply_element(Add::new(mean))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -764,9 +798,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Div::new(factor).set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Div::new(factor))
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -789,8 +823,8 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Pow::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Pow::new(1.0))
             .build_dynamic(len);
 
         pipe.execute(&input, &mut out_buf)?;
@@ -849,12 +883,12 @@ proptest! {
         let mut out_static = vec![0f32; LEN];
         let mut out_dynamic = vec![0f32; LEN];
 
-        let mut pipe_static = Pipeline::new()
-            .apply_element::<_, LEN>(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe_static = Pipeline::new_with::<f32, ZeroOnNan>()
+            .apply_element::<_, LEN>(Multiply::new(factor))
             .build();
 
-        let mut pipe_dynamic = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe_dynamic = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
             .build_dynamic(LEN);
 
         pipe_static.execute(&input, &mut out_static)?;
@@ -876,16 +910,16 @@ proptest! {
         let mut out_mul_add = vec![0f32; len];
 
         // Add then Multiply
-        let mut pipe1 = Pipeline::with_dynamic()
-            .apply_element(Add::new(add_val).set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(mul_val).set_nan_handling(NanHandling::Zero))
+        let mut pipe1 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Add::new(add_val))
+            .apply_element(Multiply::new(mul_val))
             .build_dynamic(len);
         pipe1.execute(&input, &mut out_add_mul)?;
 
         // Multiply then Add
-        let mut pipe2 = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(mul_val).set_nan_handling(NanHandling::Zero))
-            .apply_element(Add::new(add_val).set_nan_handling(NanHandling::Zero))
+        let mut pipe2 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(mul_val))
+            .apply_element(Add::new(add_val))
             .build_dynamic(len);
         pipe2.execute(&input, &mut out_mul_add)?;
 
@@ -912,21 +946,21 @@ proptest! {
         let mut out_separate = vec![0f32; len];
 
         // Transform + Element in one pipeline
-        let mut pipe_fused = Pipeline::with_dynamic()
+        let mut pipe_fused = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
             .apply_transform(Reverse::<0>::new())
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
         pipe_fused.execute(&input, &mut out_fused)?;
 
         // Separate pipelines
         let mut temp = vec![0f32; len];
-        let mut pipe1 = Pipeline::with_dynamic()
+        let mut pipe1 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
             .apply_transform(Reverse::<0>::new())
             .build_dynamic(len);
         pipe1.execute(&input, &mut temp)?;
 
-        let mut pipe2 = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe2 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
         pipe2.execute(&temp, &mut out_separate)?;
 
@@ -950,8 +984,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -980,8 +1014,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; len];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1001,9 +1035,9 @@ proptest! {
         let mut out_buf = vec![0f32; len];
 
         // NaN passes through Reverse, then gets caught by element op
-        let mut pipe = Pipeline::with_dynamic()
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
             .apply_transform(Reverse::<0>::new())
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1026,9 +1060,9 @@ proptest! {
         let mut out_buf = vec![0f32; len];
 
         // Sqrt of negative produces NaN, which should be caught
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Sqrt::new().set_nan_handling(NanHandling::Zero))
-            .apply_element(Multiply::new(2.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Sqrt::new())
+            .apply_element(Multiply::new(2.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1051,8 +1085,9 @@ proptest! {
         let len = input.len();
         let mut out_buf = vec![0f32; len];
 
+        // Fail-fast policy: subnormals must not be mistaken for non-finite
         let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Fail))
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1072,8 +1107,8 @@ proptest! {
 
         let mut out_buf = vec![0f32; EXPECTED_LEN];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(EXPECTED_LEN);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1092,14 +1127,14 @@ proptest! {
         let input_f64: Vec<f64> = input_f32.iter().map(|&x| x as f64).collect();
 
         let mut out_f32 = vec![0f32; len];
-        let mut pipe_f32 = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe_f32 = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
         pipe_f32.execute(&input_f32, &mut out_f32)?;
 
         let mut out_f64 = vec![0f64; len];
-        let mut pipe_f64 = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor as f64).set_nan_handling(NanHandling::Zero))
+        let mut pipe_f64 = Pipeline::with_dynamic_and::<f64, ZeroOnNan>()
+            .apply_element(Multiply::new(factor as f64))
             .build_dynamic(len);
         pipe_f64.execute(&input_f64, &mut out_f64)?;
 
@@ -1123,8 +1158,8 @@ proptest! {
         let buffer_size = len + extra_size;
         let mut out_buf = vec![99.0f32; buffer_size];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(2.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(2.0))
             .build_dynamic(len);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1145,8 +1180,8 @@ proptest! {
         let len = input.len();
         let mut outputs = vec![];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(factor).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(factor))
             .build_dynamic(len);
 
         for _ in 0..iterations {
@@ -1171,8 +1206,8 @@ proptest! {
         let input = vec![1.0f32; large_size];
         let mut out_buf = vec![0f32; large_size];
 
-        let mut pipe = Pipeline::with_dynamic()
-            .apply_element(Multiply::new(1.0).set_nan_handling(NanHandling::Zero))
+        let mut pipe = Pipeline::with_dynamic_and::<f32, ZeroOnNan>()
+            .apply_element(Multiply::new(1.0))
             .build_dynamic(small_size);
 
         let result = pipe.execute(&input, &mut out_buf);
@@ -1194,10 +1229,9 @@ proptest! {
 
         // HWC layout
         let mut out_hwc = vec![0f32; W * H * C];
-        let mut pipe_hwc = Pipeline::new()
+        let mut pipe_hwc = Pipeline::new_with::<f32, ZeroOnNan>()
             .apply_transform(NormalizePerChannel::<W, H, C, f32>::new(mean, std)
-                .with_layout(ChannelLayout::Hwc)
-                .set_nan_handling(NanHandling::Zero))
+                .with_layout(ChannelLayout::Hwc))
             .build();
         pipe_hwc.execute(&input, &mut out_hwc)?;
 
@@ -1209,10 +1243,9 @@ proptest! {
         pipe_to_chw.execute(&input, &mut temp_chw)?;
 
         let mut normalized_chw = vec![0f32; W * H * C];
-        let mut pipe_norm_chw = Pipeline::new()
+        let mut pipe_norm_chw = Pipeline::new_with::<f32, ZeroOnNan>()
                 .apply_transform(NormalizePerChannel::<W, H, C, f32>::new(mean, std)
-                .with_layout(ChannelLayout::Chw)
-                .set_nan_handling(NanHandling::Zero))
+                .with_layout(ChannelLayout::Chw))
             .build();
         pipe_norm_chw.execute(&temp_chw, &mut normalized_chw)?;
 

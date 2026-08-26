@@ -1,5 +1,5 @@
 use crate::{
-    errors::{check_finite, ErrorKind, NanHandling, PipeError},
+    errors::{ErrorKind, NanHandler, PipeError},
     traits::{ElementOp, False, Float, IsTrue, TransformOp, True},
 };
 
@@ -12,7 +12,6 @@ use num_traits::Float as _;
 pub struct Normalize<T: Float = f32> {
     mean: T,
     std: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Default for Normalize<T> {
@@ -20,7 +19,6 @@ impl<T: Float> Default for Normalize<T> {
         Self {
             mean: T::zero(),
             std: T::one(),
-            nan_handling: NanHandling::default(),
         }
     }
 }
@@ -30,24 +28,15 @@ impl<T: Float> Normalize<T> {
         assert!(!std.is_zero() && std.is_sign_positive() && std.is_finite());
         assert!(mean.is_finite());
 
-        Self {
-            mean,
-            std,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { mean, std }
     }
 }
 
 impl<T: Float> ElementOp<T> for Normalize<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = (data - self.mean) / self.std;
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -59,39 +48,27 @@ impl<T: Float> ElementOp<T> for Normalize<T> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Div<T: Float = f32> {
     factor: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Div<T> {
     pub fn new(factor: T) -> Self {
         assert!(!factor.is_zero() && factor.is_finite());
 
-        Self {
-            factor,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { factor }
     }
 }
 
 impl<T: Float> Default for Div<T> {
     fn default() -> Self {
-        Self {
-            factor: T::one(),
-            nan_handling: NanHandling::default(),
-        }
+        Self { factor: T::one() }
     }
 }
 
 impl<T: Float> ElementOp<T> for Div<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data / self.factor;
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -103,39 +80,27 @@ impl<T: Float> ElementOp<T> for Div<T> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Multiply<T: Float = f32> {
     factor: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Multiply<T> {
     pub fn new(factor: T) -> Self {
         assert!(factor.is_finite());
 
-        Self {
-            factor,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { factor }
     }
 }
 
 impl<T: Float> Default for Multiply<T> {
     fn default() -> Self {
-        Self {
-            factor: T::one(),
-            nan_handling: NanHandling::default(),
-        }
+        Self { factor: T::one() }
     }
 }
 
 impl<T: Float> ElementOp<T> for Multiply<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data * self.factor;
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -147,39 +112,27 @@ impl<T: Float> ElementOp<T> for Multiply<T> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Add<T: Float = f32> {
     value: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Add<T> {
     pub fn new(value: T) -> Self {
         assert!(value.is_finite());
 
-        Self {
-            value,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { value }
     }
 }
 
 impl<T: Float> Default for Add<T> {
     fn default() -> Self {
-        Self {
-            value: T::zero(),
-            nan_handling: NanHandling::default(),
-        }
+        Self { value: T::zero() }
     }
 }
 
 impl<T: Float> ElementOp<T> for Add<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data + self.value;
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -191,39 +144,27 @@ impl<T: Float> ElementOp<T> for Add<T> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Subtract<T: Float = f32> {
     value: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Subtract<T> {
     pub fn new(value: T) -> Self {
         assert!(value.is_finite());
 
-        Self {
-            value,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { value }
     }
 }
 
 impl<T: Float> Default for Subtract<T> {
     fn default() -> Self {
-        Self {
-            value: T::zero(),
-            nan_handling: NanHandling::default(),
-        }
+        Self { value: T::zero() }
     }
 }
 
 impl<T: Float> ElementOp<T> for Subtract<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data - self.value;
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -237,7 +178,6 @@ impl<T: Float> ElementOp<T> for Subtract<T> {
 pub struct Clamp<T: Float = f32> {
     min: T,
     max: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Clamp<T> {
@@ -245,24 +185,18 @@ impl<T: Float> Clamp<T> {
         assert!(min.is_finite() && max.is_finite());
         assert!(min <= max);
 
-        Self {
-            min,
-            max,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { min, max }
     }
 }
 
 impl<T: Float> ElementOp<T> for Clamp<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
+        // Non-finite inputs are handed to the pipeline policy verbatim
+        // (clamping a NaN is meaningless); for `PropagateNan` this whole
+        // branch folds away since the value is returned unchanged either way
         if !data.is_finite() {
-            check_finite(data, self.nan_handling)
+            N::check_finite(data)
         } else {
             Ok(data.clamp(self.min, self.max))
         }
@@ -276,28 +210,20 @@ impl<T: Float> ElementOp<T> for Clamp<T> {
 /// Absolute value operation (point-wise)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Abs<T: Float = f32> {
-    nan_handling: NanHandling,
     marker: core::marker::PhantomData<T>,
 }
 
 impl<T: Float> Abs<T> {
     pub fn new() -> Self {
         Self {
-            nan_handling: NanHandling::default(),
             marker: core::marker::PhantomData,
         }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
     }
 }
 
 impl<T: Float> Default for Abs<T> {
     fn default() -> Self {
         Self {
-            nan_handling: NanHandling::default(),
             marker: core::marker::PhantomData,
         }
     }
@@ -305,9 +231,9 @@ impl<T: Float> Default for Abs<T> {
 
 impl<T: Float> ElementOp<T> for Abs<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data.abs();
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -319,22 +245,13 @@ impl<T: Float> ElementOp<T> for Abs<T> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pow<T: Float = f32> {
     exponent: T,
-    nan_handling: NanHandling,
 }
 
 impl<T: Float> Pow<T> {
     pub fn new(exponent: T) -> Self {
         assert!(exponent.is_finite());
 
-        Self {
-            exponent,
-            nan_handling: NanHandling::default(),
-        }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
+        Self { exponent }
     }
 }
 
@@ -342,16 +259,15 @@ impl<T: Float> Default for Pow<T> {
     fn default() -> Self {
         Self {
             exponent: T::one(),
-            nan_handling: NanHandling::default(),
         }
     }
 }
 
 impl<T: Float> ElementOp<T> for Pow<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data.powf(self.exponent);
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -362,28 +278,20 @@ impl<T: Float> ElementOp<T> for Pow<T> {
 /// Square root operation (point-wise)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sqrt<T: Float = f32> {
-    nan_handling: NanHandling,
     marker: core::marker::PhantomData<T>,
 }
 
 impl<T: Float> Sqrt<T> {
     pub fn new() -> Self {
         Self {
-            nan_handling: NanHandling::default(),
             marker: core::marker::PhantomData,
         }
-    }
-
-    pub fn set_nan_handling(mut self, nan_handling: NanHandling) -> Self {
-        self.nan_handling = nan_handling;
-        self
     }
 }
 
 impl<T: Float> Default for Sqrt<T> {
     fn default() -> Self {
         Self {
-            nan_handling: NanHandling::default(),
             marker: core::marker::PhantomData,
         }
     }
@@ -391,9 +299,9 @@ impl<T: Float> Default for Sqrt<T> {
 
 impl<T: Float> ElementOp<T> for Sqrt<T> {
     #[inline(always)]
-    fn compute(&self, data: T) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
         let result = data.sqrt();
-        check_finite(result, self.nan_handling)
+        N::check_finite(result)
     }
 
     fn op_name(&self) -> alloc::string::String {
@@ -432,8 +340,10 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
         out_index
     }
 
+    /// Pure index remapping: never produces a new value, so the NaN policy
+    /// `N` is irrelevant here
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -490,8 +400,9 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
         out_col * COLS + out_row
     }
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         // Transposing requires knowing the dimensions and therefore is not dynamic
         let in_index = <Transpose<ROWS, COLS> as TransformOp<T>>::map_index(self, out_index, 0);
         debug_assert!(in_index < data.len());
@@ -502,7 +413,7 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -517,7 +428,7 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by `map_index` (see `compute`)
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)
@@ -552,8 +463,9 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
     /// Padding must never shrink the data (use `Truncate` for that)
     const INTERNAL_IS_VALID: bool = PADDED_LEN >= ORIGINAL_LEN;
 
+    /// Copies / fills only: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         if out_index < ORIGINAL_LEN {
             debug_assert!(out_index < data.len());
             // SAFETY: caller contract guarantees
@@ -566,7 +478,7 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -651,8 +563,9 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
         }
     }
 
+    /// Pure index remapping: `N` is unused
     #[inline(always)]
-    fn compute(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         // Inlined call, should not cause too much overhead: `data.len()`
         let in_index = <Reverse<LEN> as TransformOp<T>>::map_index(self, out_index, data.len());
         debug_assert!(in_index < data.len());
@@ -662,7 +575,7 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
         input: &'i [T],
@@ -680,7 +593,7 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
             // SAFETY: `out_index < n <= out.len()` (checked above); the read
             // is bounded by `map_index` (see `compute`)
             unsafe {
-                *out.get_unchecked_mut(out_index) = self.compute(input, out_index)?;
+                *out.get_unchecked_mut(out_index) = self.compute::<N>(input, out_index)?;
             }
         }
         Ok(out)

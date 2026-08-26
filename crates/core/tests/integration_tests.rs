@@ -209,10 +209,10 @@ mod unit_tests {
 
         let mut pipe = Pipeline::with_dynamic()
             .apply_element(
-                Multiply::new(2.0).set_nan_handling(featurize_core::errors::NanHandling::Fail),
+                Multiply::new(2.0),
             )
             .apply_element(
-                Add::new(1.0).set_nan_handling(featurize_core::errors::NanHandling::Fail),
+                Add::new(1.0),
             )
             .build_dynamic(5);
 

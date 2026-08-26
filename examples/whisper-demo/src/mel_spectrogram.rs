@@ -1,5 +1,5 @@
 use featurize_core::{
-    errors::{check_finite, NanHandling},
+    errors::NanHandler,
     prelude::*,
     traits::{False, TransformOp},
 };
@@ -154,24 +154,26 @@ fn log_mel_spectrogram_w<T: Float>(
 
 /// Log Mel Spectrogram transformation operation
 /// Converts audio samples to mel spectrogram representation
+///
+/// NaN handling is inherited from the pipeline this op is built into (see
+/// `featurize_core::errors::NanHandler`); the policy is applied to the
+/// normalized output values.
 #[derive(Debug, Clone)]
 pub struct LogMelSpectrogram<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> {
     pub filters: Vec<f32>,
     pub speed_up: bool,
     pub pad_chunk_length: usize,
-    pub nan_handling: NanHandling,
     hann_window: Vec<f32>,
 }
 
 impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
     LogMelSpectrogram<N_FFT, HOP_LENGTH, N_MEL>
 {
-    pub fn with_nan_handling(
+    pub fn new(
         filters: Vec<f32>,
         speed_up: bool,
         pad_chunk_length: usize,
         _input_len: usize,
-        nan_handling: NanHandling,
     ) -> Self {
         let half = 0.5f32;
         let one = 1.0f32;
@@ -186,27 +188,14 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
             filters,
             speed_up,
             pad_chunk_length,
-            nan_handling,
             hann_window,
         }
     }
 
-    pub fn new(
-        filters: Vec<f32>,
-        speed_up: bool,
-        pad_chunk_length: usize,
-        input_len: usize,
-    ) -> Self {
-        Self::with_nan_handling(
-            filters,
-            speed_up,
-            pad_chunk_length,
-            input_len,
-            NanHandling::default(),
-        )
-    }
-
-    fn compute_mel_spectrogram(&self, samples: &[f32]) -> Result<Vec<f32>, PipeError> {
+    fn compute_mel_spectrogram<N: NanHandler>(
+        &self,
+        samples: &[f32],
+    ) -> Result<Vec<f32>, PipeError> {
         let zero = 0.0f32;
         let n_len = samples.len() / HOP_LENGTH;
         let pad = 100 * self.pad_chunk_length / 2;
@@ -250,7 +239,7 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize>
         for m in mel.iter_mut() {
             let v = f32::max(*m, mmax);
             let normalized = v / 4.0 + 1.0;
-            *m = check_finite(normalized, self.nan_handling)?;
+            *m = N::check_finite(normalized)?;
         }
 
         Ok(mel)
@@ -285,13 +274,13 @@ impl<const N_FFT: usize, const HOP_LENGTH: usize, const N_MEL: usize> TransformO
     }
 
     #[inline(always)]
-    fn execute<'i, 'o>(
+    fn execute<'i, 'o, N: NanHandler>(
         &self,
         out: &'o mut [f32],
         input: &'i [f32],
         _n: usize,
     ) -> Result<&'o mut [f32], PipeError> {
-        let mel = self.compute_mel_spectrogram(input)?;
+        let mel = self.compute_mel_spectrogram::<N>(input)?;
         let copy_len = mel.len().min(out.len());
         out[..copy_len].copy_from_slice(&mel[..copy_len]);
         Ok(out)

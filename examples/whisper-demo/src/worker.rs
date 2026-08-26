@@ -370,9 +370,13 @@ impl Decoder {
             single_channel_len,
         );
 
+        // The NaN policy is pipeline-wide and chosen here, at construction
+        // time: a corrupt sample should surface as an error rather than
+        // silently poison the encoder input.
+        //
         // The pipeline needs to be reconstructed based on the
         // `wav_input` so no need to use `BoxedPipeExec`
-        let mut pipeline_normalize = Pipeline::new()
+        let mut pipeline_normalize = Pipeline::new_with::<f32, FailOnNan>()
             .apply_element::<_, 176000>(Div::new(32768.0))
             .apply_transform(mel_op)
             .build();
