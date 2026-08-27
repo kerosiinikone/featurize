@@ -19,7 +19,14 @@ The crate is `#![no_std]` (using `alloc`) and is verified in CI against:
 - `x86_64-unknown-linux-gnu`
 - `wasm32-unknown-unknown`
 
+## Development
+
+    cargo fmt --all
+    cargo lint          # library only, zero allows -- the hard gate
+    cargo lint-tests    # tests + benches, test idioms allowed
+    cargo lint-wasm     # wasm32-unknown-unknown, all features
+    cargo test -p featurize-core --all-features
+
 ## License
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your
-option.
+Licensed under the MIT license.

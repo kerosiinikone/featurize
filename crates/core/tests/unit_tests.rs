@@ -1,6 +1,9 @@
+#![allow(clippy::needless_range_loop)]
+
 use featurize_core::errors::NanHandler;
 use featurize_core::prelude::*;
 
+#[allow(clippy::empty_line_after_doc_comments)]
 /// Unit tests for the core library functionality
 ///
 /// Contains tests for basic lib operations, image operations
@@ -29,10 +32,10 @@ impl<T: Float> TransformOp<T> for Identity {
 
     /// Pure copy: the pipeline NaN policy `N` is irrelevant here
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         debug_assert!(input.len() >= n && out.len() >= n);
@@ -68,10 +71,10 @@ impl<T: Float> TransformOp<T> for Doubler {
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // `n` is always the size of the output buffer
@@ -108,19 +111,19 @@ impl<T: Float> TransformOp<T> for ErrorOp {
     #[inline(always)]
     fn compute<N: NanHandler>(&self, _data: &[T], _index: usize) -> Result<T, PipeError> {
         Err(PipeError::new(
-            featurize_core::errors::ErrorKind::InvalidInputSize,
+            ErrorKind::InvalidInputSize,
         ))
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         _out: &'o mut [T],
-        _input: &'i [T],
+        _input: &[T],
         _n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         Err(PipeError::new(
-            featurize_core::errors::ErrorKind::InvalidInputSize,
+            ErrorKind::InvalidInputSize,
         ))
     }
 }
@@ -150,7 +153,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }
@@ -431,7 +434,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidOutputSize
+                ErrorKind::InvalidOutputSize
             ));
         }
     }
@@ -516,14 +519,14 @@ mod unit_tests {
 
         assert_eq!(
             pipe.nan_handling(),
-            featurize_core::errors::NanHandling::Fail
+            NanHandling::Fail
         );
 
         let result = pipe.execute(&in_buf, &mut out_buf);
 
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(e.kind(), featurize_core::errors::ErrorKind::NaN));
+            assert!(matches!(e.kind(), ErrorKind::NaN));
         }
     }
 
@@ -539,7 +542,7 @@ mod unit_tests {
 
         assert_eq!(
             pipe.nan_handling(),
-            featurize_core::errors::NanHandling::Zero
+            NanHandling::Zero
         );
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -561,7 +564,7 @@ mod unit_tests {
 
         assert_eq!(
             pipe.nan_handling(),
-            featurize_core::errors::NanHandling::Propagate
+            NanHandling::Propagate
         );
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
@@ -696,7 +699,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidOutputSize
+                ErrorKind::InvalidOutputSize
             ));
         }
     }
@@ -715,7 +718,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }
@@ -747,7 +750,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidOutputSize
+                ErrorKind::InvalidOutputSize
             ));
         }
     }
@@ -766,7 +769,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }
@@ -785,7 +788,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }
@@ -828,7 +831,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidOutputSize
+                ErrorKind::InvalidOutputSize
             ));
         }
     }
@@ -849,7 +852,7 @@ mod unit_tests {
     //     if let Err(e) = result {
     //         assert!(matches!(
     //             e.kind(),
-    //             featurize_core::errors::ErrorKind::InvalidInputSize
+    //             ErrorKind::InvalidInputSize
     //         ));
     //     }
     // }
@@ -1147,7 +1150,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidOutputSize
+                ErrorKind::InvalidOutputSize
             ));
         }
     }
@@ -1554,7 +1557,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }
@@ -1575,7 +1578,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }

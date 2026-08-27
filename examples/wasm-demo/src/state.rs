@@ -1,6 +1,8 @@
 use crate::model::Model;
 use burn::{
-    module::Module, prelude::Device, record::{BinBytesRecorder, FullPrecisionSettings, Recorder}
+    module::Module,
+    prelude::Device,
+    record::{BinBytesRecorder, FullPrecisionSettings, Recorder},
 };
 
 #[cfg(feature = "flex")]

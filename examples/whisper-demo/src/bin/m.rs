@@ -37,7 +37,7 @@ impl Decoder {
             Ok(decoder) => {
                 web_sys::console::log_1(&"Decoder loaded successfully".into());
                 Ok(Self { decoder })
-            },
+            }
             Err(e) => {
                 let error_msg = format!("Failed to load decoder: {}", e);
                 web_sys::console::error_1(&error_msg.clone().into());

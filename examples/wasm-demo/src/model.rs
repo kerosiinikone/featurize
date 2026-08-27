@@ -1,7 +1,7 @@
 use burn::{
     nn::{
-        BatchNorm, PaddingConfig2d,
         pool::{MaxPool2d, MaxPool2dConfig},
+        BatchNorm, PaddingConfig2d,
     },
     prelude::*,
 };
@@ -71,7 +71,12 @@ pub struct ConvBlock<B: Backend> {
 }
 
 impl<B: Backend> ConvBlock<B> {
-    pub fn new(channels: [usize; 2], kernel_size: [usize; 2], device: &Device<B>, pool: bool) -> Self {
+    pub fn new(
+        channels: [usize; 2],
+        kernel_size: [usize; 2],
+        device: &Device<B>,
+        pool: bool,
+    ) -> Self {
         let conv = nn::conv::Conv2dConfig::new(channels, kernel_size)
             .with_padding(PaddingConfig2d::Valid)
             .init(device);

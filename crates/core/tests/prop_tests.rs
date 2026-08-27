@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use featurize_core::{
     errors::{ErrorKind, PropagateNan, ZeroOnNan},
     image::*,
@@ -5,6 +7,7 @@ use featurize_core::{
 };
 use proptest::prelude::*;
 
+#[allow(clippy::empty_line_after_doc_comments)]
 /// Pipeline prop tests for input variety checking
 ///
 /// NOTE: the NaN / infinity policy is a *pipeline-wide, compile-time*
@@ -1284,7 +1287,7 @@ proptest! {
         pipe.execute(&input, &mut out_buf)?;
 
         for &val in &out_buf {
-            prop_assert!(val >= 0.0 && val <= 255.0,
+            prop_assert!((0.0..=255.0).contains(&val),
                 "Grayscale output {} out of bounds [0, 255]", val);
         }
     }

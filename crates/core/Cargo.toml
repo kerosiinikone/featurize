@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Compile-time-checked, WASM no_std preprocessing pipelines for numeric and image feature extraction."
-readme = "README.md"
+readme = "../../README.md"
 keywords = ["preprocessing", "pipeline", "tensor", "no-std", "ml"]
 categories = ["science", "no-std", "algorithms"]
 exclude = ["fuzz/", "*.png", "*.svg"]
@@ -21,14 +21,17 @@ workspace = true
 
 [features]
 default = []
-burn = ["dep:burn"]
-candle = ["dep:candle-core"]
+burn = ["dep:burn", "dep:getrandom"]
+candle = ["dep:candle-core", "dep:getrandom"]
 
 [dependencies]
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 burn = { version = "0.21.0", default-features = false, optional = true }
 candle-core = { version = "0.8", default-features = false, optional = true }
 bytemuck = { version = "1.25.2", features = ["derive"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { package = "getrandom", version = "0.3", features = ["wasm_js"], optional = true }
 
 [dev-dependencies]
 trybuild = "1.0"

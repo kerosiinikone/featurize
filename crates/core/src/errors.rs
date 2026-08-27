@@ -13,7 +13,7 @@ pub enum ErrorKind {
     /// Output buffer is too small
     InvalidOutputSize,
     /// Requested tensor shape doesn't match the pipeline output length
-    #[cfg(feature = "candle")]
+    #[cfg(feature = "burn")]
     ShapeMismatch,
     /// NaN or infinity encountered
     NaN,
@@ -59,6 +59,7 @@ pub enum NanHandling {
     Propagate,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for NanHandling {
     fn default() -> Self {
         Self::Fail

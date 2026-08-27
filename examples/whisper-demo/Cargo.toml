@@ -2,6 +2,8 @@
 name = "candle-wasm-example-whisper"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
+publish = false
 
 [dependencies]
 candle-core = { version = "0.8", default-features = false }
@@ -21,7 +23,6 @@ hound = "3.5"
 safetensors = "0.4"
 
 # Wasm specific crates.
-getrandom = { version = "0.3.4", features = ["wasm_js"] }
 gloo = "0.12"
 js-sys = "0.3.64"
 wasm-bindgen = "0.2.87"
@@ -29,6 +30,9 @@ wasm-bindgen-futures = "0.4.37"
 wasm-logger = "0.2"
 yew-agent = "0.2.0"
 yew = { version = "0.23.0", features = ["csr"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
 
 [dependencies.web-sys]
 version = "0.3.70"

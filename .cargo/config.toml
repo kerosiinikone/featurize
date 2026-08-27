@@ -1,0 +1,30 @@
+[alias]
+lint = [
+    "clippy", "-p", "featurize-core", "--lib", "--all-features",
+    "--", "-D", "warnings",
+]
+
+lint-tests = [
+    "clippy", "-p", "featurize-core", "--all-targets", "--all-features",
+    "--",
+    "-D", "warnings",
+    "-A", "unused_qualifications",
+    "-A", "clippy::needless_range_loop",
+    "-A", "clippy::approx_constant",
+    "-A", "clippy::excessive_precision",
+    "-A", "clippy::float_cmp",
+    "-A", "clippy::useless_vec",
+    "-A", "clippy::too_many_arguments",
+    "-A", "clippy::type_complexity",
+    "-A", "clippy::assertions_on_constants",
+    "-A", "clippy::unusual_byte_groupings",
+]
+
+lint-wasm = [
+    "clippy", "--target", "wasm32-unknown-unknown",
+    "-p", "featurize-core", "--lib", "--all-features",
+    "--", "-D", "warnings",
+]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

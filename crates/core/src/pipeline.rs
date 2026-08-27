@@ -1,8 +1,8 @@
 use crate::{
     errors::{FailOnNan, NanHandler, NanHandling, PipeError},
     traits::{
-        Element, ElementElement, ElementOp, Float, Fused, Head, IndexRemappable, IsTrue,
-        Link, Stage, Transform, TransformElement, TransformOp, TransformTransform,
+        Element, ElementElement, ElementOp, Float, Fused, Head, IndexRemappable, IsTrue, Link,
+        Stage, Transform, TransformElement, TransformOp, TransformTransform,
     },
 };
 
@@ -125,6 +125,7 @@ where
 /// return a different type with each method.
 impl Pipeline {
     /// Static pipeline with the default (fail fast) NaN policy
+    #[allow(clippy::new_ret_no_self)]
     pub fn new<T: Float>() -> PipelineStatic<T, FailOnNan> {
         PipelineStatic {
             marker: core::marker::PhantomData,
@@ -392,6 +393,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    #[allow(clippy::type_complexity)]
     pub fn apply_element<U>(
         self,
         op: U,
@@ -410,6 +412,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn apply_transform<U>(
         self,
         op: U,
@@ -444,6 +447,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    #[allow(clippy::type_complexity)]
     pub fn apply_element<U>(
         self,
         op: U,
@@ -462,6 +466,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn apply_transform<U>(
         self,
         op: U,
@@ -496,6 +501,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    #[allow(clippy::type_complexity)]
     pub fn apply_transform_fusable<U>(
         self,
         op: U,
@@ -530,6 +536,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    #[allow(clippy::type_complexity)]
     pub fn apply_element<U>(self, op: U) -> Pipe<Link<Fused<T, U>, S, Element, F>, F, State, N>
     where
         U: ElementOp<F>,
@@ -546,6 +553,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn apply_transform<U>(
         self,
         op: U,
@@ -580,6 +588,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    #[allow(clippy::type_complexity)]
     pub fn apply_element<U>(
         self,
         op: U,
@@ -599,6 +608,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn apply_transform<U>(
         self,
         op: U,
@@ -634,6 +644,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    #[allow(clippy::type_complexity)]
     pub fn apply_transform_fusable<U>(
         self,
         op: U,

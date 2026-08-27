@@ -9,7 +9,7 @@
 //! - `candle` — convert pipeline output directly into a `candle` tensor.
 //!
 //! Both are off by default. The crate is `no_std` (with `alloc`) and builds for
-//! `wasm32-unknown-unknown` 
+//! `wasm32-unknown-unknown`
 
 #![no_std]
 

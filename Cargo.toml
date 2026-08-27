@@ -10,7 +10,7 @@ members = [
 [workspace.package]
 edition = "2021"
 rust-version = "1.85.0"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/kerosiinikone/featurize"
 authors = ["Onni Ahopelto <onni.ahopelto@gmail.com>"]
 
@@ -23,7 +23,10 @@ rand_distr = "0.4.3"
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 unused_qualifications = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(docsrs)'] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(docsrs)',
+    'cfg(getrandom_backend, values("wasm_js"))',
+] }
 # Once the public API is fully documented:
 # missing_docs = "warn"
 

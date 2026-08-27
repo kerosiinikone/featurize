@@ -35,15 +35,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: host / all features
+          - name: lib / all features
+            target: ""
+            args: "-p featurize-core --lib --all-features"
+            allow: ""
+
+          - name: tests + benches
             target: ""
             args: "-p featurize-core --all-targets --all-features"
+            allow: >-
+              -A unused_qualifications
+              -A clippy::needless_range_loop
+              -A clippy::approx_constant
+              -A clippy::excessive_precision
+              -A clippy::float_cmp
+              -A clippy::useless_vec
+              -A clippy::too_many_arguments
+              -A clippy::type_complexity
+              -A clippy::assertions_on_constants
+              -A clippy::unusual_byte_groupings
+
           - name: wasm32
             target: wasm32-unknown-unknown
             args: "-p featurize-core --lib --all-features"
+            allow: ""
+
           - name: no_std (thumbv7em)
             target: thumbv7em-none-eabi
             args: "-p featurize-core --lib"
+            allow: ""
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -52,11 +72,11 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: clippy-${{ matrix.target }}
+          key: clippy-${{ matrix.target }}-${{ matrix.name }}
       - name: cargo clippy
         env:
           TARGET_FLAG: ${{ matrix.target != '' && format('--target={0}', matrix.target) || '' }}
-        run: cargo clippy ${TARGET_FLAG} ${{ matrix.args }} -- -D warnings
+        run: cargo clippy ${TARGET_FLAG} ${{ matrix.args }} -- -D warnings ${{ matrix.allow }}
 
   test:
     name: test (${{ matrix.toolchain }})

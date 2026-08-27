@@ -55,10 +55,10 @@ where
     const OUT_LEN: usize;
     const MAX_BUF_SIZE: usize;
 
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         data: &[T],
-        in_buf: &'i mut [T],
+        in_buf: &mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError>;
 
@@ -250,10 +250,10 @@ where
     ///
     /// Callers (the `Stage` impls) guarantee `out.len() == n == out_len(..)`
     /// and `input.len() == in_len(..)`.
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError>;
 
@@ -392,10 +392,10 @@ impl<T: Float, U: ElementOp<T>, S: ElementOp<T>> TransformOp<T> for Fused<U, S, 
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         debug_assert!(input.len() >= n && out.len() >= n);
@@ -443,10 +443,10 @@ impl<T: Float, U: TransformOp<T>, S: ElementOp<T>> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         debug_assert!(out.len() >= n);
@@ -520,14 +520,14 @@ where
         //
         // This is required as the `self.prev_op` might contain a fused
         // element operation which requires mutating the elements
-        Ok(self.prev_op.compute::<N>(data, intermediate_index)?)
+        self.prev_op.compute::<N>(data, intermediate_index)
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         debug_assert!(out.len() >= n);
@@ -579,10 +579,10 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
     const MAX_BUF_SIZE: usize = INPUT_LEN;
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         data: &[T],
-        _in_buf: &'i mut [T],
+        _in_buf: &mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError> {
         self.root_op.setup();
@@ -608,10 +608,10 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
             ));
         }
 
-        // SAFETY: `i < exec_len`, and both `exec_len == data.len()` and
-        // `exec_len <= out_buf.len()` were verified above, so neither the
-        // read nor the write can go out of bounds
         for i in 0..exec_len {
+            // SAFETY: `i < exec_len`, and both `exec_len == data.len()` and
+            // `exec_len <= out_buf.len()` were verified above, so neither the
+            // read nor the write can go out of bounds
             unsafe {
                 *out_buf.get_unchecked_mut(i) =
                     self.root_op.compute::<N>(*data.get_unchecked(i))?;
@@ -657,10 +657,10 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
     const MAX_BUF_SIZE: usize = _const_max_usize(INPUT_LEN, U::OUT_LEN);
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         data: &[T],
-        _in_buf: &'i mut [T],
+        _in_buf: &mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError> {
         self.root_op.setup();
@@ -734,10 +734,10 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
     const MAX_BUF_SIZE: usize = _const_max_usize(S::MAX_BUF_SIZE, U::OUT_LEN);
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         data: &[T],
-        in_buf: &'i mut [T],
+        in_buf: &mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError> {
         let prev_out = self.prev_stage.execute::<N>(data, out_buf, in_buf)?;
@@ -816,10 +816,10 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T>
     const MAX_BUF_SIZE: usize = S::MAX_BUF_SIZE;
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         data: &[T],
-        in_buf: &'i mut [T],
+        in_buf: &mut [T],
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError> {
         let prev_out = self.prev_stage.execute::<N>(data, out_buf, in_buf)?;
@@ -835,11 +835,11 @@ impl<T: Float, U: ElementOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Element, T>
             ));
         }
 
-        // SAFETY: `i < n`, `n == prev_out.len()` and `n <= out_buf.len()`
-        // (checked above), so both accesses stay in bounds. `prev_out`
-        // borrows `in_buf` while we write to `out_buf`; the buffers are
-        // distinct allocations, so no aliasing occurs
         for i in 0..n {
+            // SAFETY: `i < n`, `n == prev_out.len()` and `n <= out_buf.len()`
+            // (checked above), so both accesses stay in bounds. `prev_out`
+            // borrows `in_buf` while we write to `out_buf`; the buffers are
+            // distinct allocations, so no aliasing occurs
             unsafe {
                 *out_buf.get_unchecked_mut(i) =
                     self.curr_op.compute::<N>(*prev_out.get_unchecked(i))?;

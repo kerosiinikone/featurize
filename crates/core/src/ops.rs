@@ -337,10 +337,10 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
     /// Pure index remapping: never produces a new value, so the NaN policy
     /// `N` is irrelevant here
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // The stage guarantees `n == out_len(..) == NEW_LEN`
@@ -408,10 +408,10 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -473,10 +473,10 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         let copy_len = ORIGINAL_LEN.min(n);
@@ -570,10 +570,10 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked

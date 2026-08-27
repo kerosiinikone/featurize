@@ -1,3 +1,6 @@
+#![allow(clippy::needless_range_loop)]
+
+#[allow(clippy::empty_line_after_doc_comments)]
 /// Pipeline integration tests for core lib functionality
 ///
 /// Contains multi-property pipeline tests for basic lib operations,
@@ -208,18 +211,14 @@ mod unit_tests {
         let in_buf = vec![1.0, 2.0, f32::NAN, 4.0, 5.0];
 
         let mut pipe = Pipeline::with_dynamic()
-            .apply_element(
-                Multiply::new(2.0),
-            )
-            .apply_element(
-                Add::new(1.0),
-            )
+            .apply_element(Multiply::new(2.0))
+            .apply_element(Add::new(1.0))
             .build_dynamic(5);
 
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(e.kind(), featurize_core::errors::ErrorKind::NaN));
+            assert!(matches!(e.kind(), ErrorKind::NaN));
         }
     }
 
@@ -344,7 +343,7 @@ mod unit_tests {
         if let Err(e) = result {
             assert!(matches!(
                 e.kind(),
-                featurize_core::errors::ErrorKind::InvalidInputSize
+                ErrorKind::InvalidInputSize
             ));
         }
     }

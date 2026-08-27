@@ -108,10 +108,10 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Transfor
     const OUT_LEN: usize = IN_W * IN_H;
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the per-pixel loop below can be
@@ -190,10 +190,10 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         debug_assert!(out.len() >= n);
@@ -262,10 +262,10 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         debug_assert!(out.len() >= n);
@@ -344,10 +344,10 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     const OUT_LEN: usize = W * H * C;
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -443,10 +443,10 @@ impl<
     const INTERNAL_IS_VALID: bool = OUT_C <= IN_C;
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -562,10 +562,10 @@ impl<
     const INTERNAL_IS_VALID: bool = OUT_C <= IN_C && IN_W > 0 && IN_H > 0 && OUT_W > 0 && OUT_H > 0;
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -731,10 +731,10 @@ impl<
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Validate the *runtime* crop window once, so the loop below can run
@@ -887,10 +887,10 @@ impl<
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -966,10 +966,10 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -1043,10 +1043,10 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked
@@ -1120,10 +1120,10 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 
     #[inline(always)]
-    fn execute<'i, 'o, N: NanHandler>(
+    fn execute<'o, N: NanHandler>(
         &self,
         out: &'o mut [T],
-        input: &'i [T],
+        input: &[T],
         n: usize,
     ) -> Result<&'o mut [T], PipeError> {
         // Cheap once-per-call guard so the loop below can be unchecked

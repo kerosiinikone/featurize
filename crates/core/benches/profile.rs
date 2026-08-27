@@ -61,9 +61,8 @@ fn naive_scale2d(input: &[f32], output: &mut [f32]) {
             let in_base = (in_y * SRC_W + in_x) * SRC_C;
             let out_base = (out_y * WIDTH + out_x) * SRC_C;
 
-            for c in 0..SRC_C {
-                output[out_base + c] = input[in_base + c];
-            }
+            output[out_base..(SRC_C + out_base)]
+                .copy_from_slice(&input[in_base..(SRC_C + in_base)]);
         }
     }
 }
