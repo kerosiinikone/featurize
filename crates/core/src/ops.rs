@@ -3,11 +3,7 @@ use crate::{
     traits::{ElementOp, False, Float, IsTrue, TransformOp, True},
 };
 
-#[allow(unused_imports)]
-use num_traits::Float as _;
-
 /// Normalize operation (point-wise)
-/// Normalizes by standard deviation and mean
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Normalize<T: Float = f32> {
     mean: T,
@@ -257,9 +253,7 @@ impl<T: Float> Pow<T> {
 
 impl<T: Float> Default for Pow<T> {
     fn default() -> Self {
-        Self {
-            exponent: T::one(),
-        }
+        Self { exponent: T::one() }
     }
 }
 
@@ -388,6 +382,7 @@ impl<T: Float, const ROWS: usize, const COLS: usize> TransformOp<T> for Transpos
     const IN_LEN: usize = ROWS * COLS;
     const OUT_LEN: usize = ROWS * COLS;
 
+    // The logic equates to pure index remapping
     #[inline(always)]
     fn map_index(&self, out_index: usize, _default_len: usize) -> usize
     where
@@ -463,7 +458,7 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
     /// Padding must never shrink the data (use `Truncate` for that)
     const INTERNAL_IS_VALID: bool = PADDED_LEN >= ORIGINAL_LEN;
 
-    /// Copies / fills only: `N` is unused
+    // Copies / fills only: `N` is unused
     #[inline(always)]
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         if out_index < ORIGINAL_LEN {
@@ -543,7 +538,7 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
         }
     }
 
-    /// Dynamic reverse
+    /// Dynamic/static reverse - length is either the given or constant length
     #[inline(always)]
     fn in_len(&self, default_len: usize) -> usize {
         if LEN > 0 {
@@ -553,7 +548,7 @@ impl<T: Float, const LEN: usize> TransformOp<T> for Reverse<LEN> {
         }
     }
 
-    /// Dynamic reverse
+    /// Dynamic/static reverse - length is either the given or constant length
     #[inline(always)]
     fn out_len(&self, default_len: usize) -> usize {
         if LEN > 0 {

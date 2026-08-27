@@ -20,6 +20,10 @@ pub enum ChannelLayout {
 pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> {
     invert: bool,
     marker: core::marker::PhantomData<T>,
+
+    lum_r: T,
+    lum_g: T,
+    lum_b: T,
 }
 
 impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float>
@@ -29,6 +33,11 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float>
         Self {
             invert: false,
             marker: core::marker::PhantomData,
+            // This should never fail due to `f32` -> `f64` being a safe
+            // operation. T is always either `f32` or `f64`.
+            lum_r: num_traits::cast::<f32, T>(0.299).unwrap(),
+            lum_g: num_traits::cast::<f32, T>(0.587).unwrap(),
+            lum_b: num_traits::cast::<f32, T>(0.114).unwrap(),
         }
     }
 
@@ -45,6 +54,11 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Default
         Self {
             invert: false,
             marker: core::marker::PhantomData,
+            // This should never fail due to `f32` -> `f64` being a safe
+            // operation. T is always either `f32` or `f64`.
+            lum_r: num_traits::cast::<f32, T>(0.299).unwrap(),
+            lum_g: num_traits::cast::<f32, T>(0.587).unwrap(),
+            lum_b: num_traits::cast::<f32, T>(0.114).unwrap(),
         }
     }
 }
@@ -73,13 +87,10 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float>
                 let r = self.apply_inversion(channels[0]);
                 let g = self.apply_inversion(channels[1]);
                 let b = self.apply_inversion(channels[2]);
-                // This should never fail due to `f32` -> `f64` being a safe
-                // operation. T is always either `f32` or `f64`.
-                num_traits::cast::<f32, T>(0.299).unwrap() * r
-                    + num_traits::cast::<f32, T>(0.587).unwrap() * g
-                    + num_traits::cast::<f32, T>(0.114).unwrap() * b
+                self.lum_r * r + self.lum_g * g + self.lum_b * b
             }
             1 => self.apply_inversion(channels[0]),
+            // Average if the channel count does not match the luminosity method
             _ => {
                 let sum: T = channels.iter().map(|&v| self.apply_inversion(v)).sum();
                 sum / num_traits::cast::<usize, T>(channels.len()).unwrap_or(T::zero())
@@ -114,6 +125,8 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Transfor
             // SAFETY: `base_idx + IN_C <= n * IN_C <= input.len()` and
             // `i < n <= out.len()` (both checked above)
             unsafe {
+                // Compute `IN_C` floats at a time, "compress" them into a single value based
+                // on the grayscale method (and channel count)
                 let in_chunk = core::slice::from_raw_parts(input.as_ptr().add(base_idx), IN_C);
                 let luminance = self.compute_luminance(in_chunk);
                 *out.get_unchecked_mut(i) = N::check_finite(luminance)?;
@@ -169,7 +182,9 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     where
         Self::IndexRemapping: IsTrue,
     {
+        // "Block"
         let c = out_index / (W * H);
+        // Offset within a "block"
         let pixel_index = out_index % (W * H);
         pixel_index * C + c
     }
@@ -196,6 +211,8 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     /// Pure index remapping: `N` is unused
     #[inline(always)]
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        // Default length is unused, the mapped index depends solely on the provided constants
+        // and the `out_index`
         let in_index = <HwcToChw<W, H, C, T> as TransformOp<T>>::map_index(self, out_index, 0);
         debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
@@ -266,6 +283,8 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     /// Pure index remapping: `N` is unused
     #[inline(always)]
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        // Default length is unused, the mapped index depends solely on the provided constants
+        // and the `out_index`
         let in_index = <ChwToHwc<W, H, C, T> as TransformOp<T>>::map_index(self, out_index, 0);
         debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
@@ -280,10 +299,12 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
 }
 
 /// Per-channel normalization: `(x - mean[c]) / std[c]`
-/// ImageNet-style preprocessing; works on HWC or CHW buffers (see `layout`).
+/// ImageNet-style preprocessing; works on HWC or CHW buffers.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NormalizePerChannel<const W: usize, const H: usize, const C: usize, T: Float> {
+    // Factor for each channel
     mean: [T; C],
+    // Factor for each channel
     std: [T; C],
     layout: ChannelLayout,
 }
@@ -297,7 +318,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> NormalizePerChann
         }
     }
 
-    // Takes ownership in the `TransformOp<_>` impl, hence not a mutable reference.
+    // Takes ownership in the `TransformOp<...>` impl, hence not a mutable reference.
     pub fn with_layout(mut self, layout: ChannelLayout) -> Self {
         self.layout = layout;
         self
@@ -306,7 +327,9 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> NormalizePerChann
     #[inline(always)]
     fn channel_of(&self, index: usize) -> usize {
         match self.layout {
+            // Wrap the channel count
             ChannelLayout::Hwc => index % C,
+            // Wrap the "block" (width and height)
             ChannelLayout::Chw => index / (W * H),
         }
     }
@@ -366,7 +389,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     }
 }
 
-/// 2D Scale operation for images
+/// Simplest 2D scale operation for images
 /// Scales an image from input dimensions to output dimensions using
 /// **nearest neighbor** sampling. For bilinear interpolation (the usual ML
 /// preprocessing default) use [`Scale2DBilinear`].
@@ -446,6 +469,7 @@ impl<
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         debug_assert!(out_index < OUT_W * OUT_H * OUT_C);
 
+        // Channel offset into scaling
         let out_c = if OUT_C > 1 { out_index % OUT_C } else { 0 };
         let pixel_index = if OUT_C > 1 {
             out_index / OUT_C
@@ -487,6 +511,10 @@ pub struct Scale2DBilinear<
     T: Float,
 > {
     marker: core::marker::PhantomData<T>,
+    // Better to precompute
+    half: T,
+    ratio_x: T,
+    ratio_y: T,
 }
 
 impl<
@@ -499,9 +527,18 @@ impl<
         T: Float,
     > Scale2DBilinear<IN_W, IN_H, IN_C, OUT_W, OUT_H, OUT_C, T>
 {
+    // Scale factor needs to be precise
+    // const RATIO_X: usize = IN_W / OUT_W;
+    // const RATIO_Y: usize = IN_H / OUT_H;
+
     pub fn new() -> Self {
         Self {
             marker: core::marker::PhantomData,
+            half: num_traits::cast::<f32, T>(0.5).unwrap(),
+            ratio_x: num_traits::cast::<usize, T>(IN_W).unwrap()
+                / num_traits::cast::<usize, T>(OUT_W).unwrap(),
+            ratio_y: num_traits::cast::<usize, T>(IN_H).unwrap()
+                / num_traits::cast::<usize, T>(OUT_H).unwrap(),
         }
     }
 }
@@ -546,7 +583,7 @@ impl<
         Ok(out)
     }
 
-    // TODO: see the casts!
+    // Note: the casts might introduce inefficiencies
     #[inline(always)]
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         debug_assert!(out_index < OUT_W * OUT_H * OUT_C);
@@ -558,27 +595,31 @@ impl<
             out_index
         };
 
+        // Offsets
         let out_x = pixel_index % OUT_W;
         let out_y = pixel_index / OUT_W;
 
-        let scale_x = num_traits::cast::<usize, T>(IN_W).unwrap()
-            / num_traits::cast::<usize, T>(OUT_W).unwrap();
-        let scale_y = num_traits::cast::<usize, T>(IN_H).unwrap()
-            / num_traits::cast::<usize, T>(OUT_H).unwrap();
+        // R_x * i_x
+        let src_x = ((num_traits::cast::<usize, T>(out_x).unwrap() + self.half) * self.ratio_x
+            - self.half)
+            .max(T::zero());
+        // R_y * i_y
+        let src_y = ((num_traits::cast::<usize, T>(out_y).unwrap() + self.half) * self.ratio_y
+            - self.half)
+            .max(T::zero());
 
-        let half = num_traits::cast::<f32, T>(0.5).unwrap();
-        // Half-pixel centers; clamped to 0 so truncation below equals floor
-        let src_x =
-            ((num_traits::cast::<usize, T>(out_x).unwrap() + half) * scale_x - half).max(T::zero());
-        let src_y =
-            ((num_traits::cast::<usize, T>(out_y).unwrap() + half) * scale_y - half).max(T::zero());
-
+        // x_l
         let x0 = (num_traits::cast::<T, usize>(src_x).unwrap()).min(IN_W - 1);
+        // y_l
         let y0 = (num_traits::cast::<T, usize>(src_y).unwrap()).min(IN_H - 1);
+        // x_h
         let x1 = (x0 + 1).min(IN_W - 1);
+        // y_h
         let y1 = (y0 + 1).min(IN_H - 1);
 
+        // x_weight
         let fx = src_x - num_traits::cast::<usize, T>(x0).unwrap();
+        // y_weight
         let fy = src_y - num_traits::cast::<usize, T>(y0).unwrap();
 
         let idx = |x: usize, y: usize| (y * IN_W + x) * IN_C + out_c;
@@ -610,8 +651,6 @@ impl<
 
 /// Crop operation for images
 /// Extracts a rectangular region from an image
-///
-/// Is only static for now
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Crop<
     const IN_W: usize,
@@ -673,8 +712,10 @@ impl<
     /// Pure (offset) sampling: `N` is unused
     #[inline(always)]
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        // Channel offset
         let out_c = out_index % IN_C;
         let pixel_index = out_index / IN_C;
+        // Image coords
         let out_x = pixel_index % OUT_W;
         let out_y = pixel_index / OUT_W;
 
@@ -817,6 +858,7 @@ impl<
     fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
         debug_assert!(out_index < OUT_W * OUT_H * C);
 
+        // Image coords
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % OUT_W;
@@ -888,14 +930,17 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> Rotate90<W, H, C,
 impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     for Rotate90<W, H, C, T>
 {
-    type IndexRemapping = False;
+    type IndexRemapping = True;
 
     const IN_LEN: usize = W * H * C;
     const OUT_LEN: usize = W * H * C;
 
-    /// Pure index remapping: `N` is unused
+    // The logic equates to pure index remapping
     #[inline(always)]
-    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn map_index(&self, out_index: usize, _default_len: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         // The rotated image is `H` pixels wide and `W` pixels tall
@@ -906,13 +951,18 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
         let in_x = out_y;
         let in_y = H - 1 - out_x;
 
-        let in_idx = (in_y * W + in_x) * C + out_c;
+        (in_y * W + in_x) * C + out_c
+    }
 
-        debug_assert!(in_idx < data.len());
+    /// Pure index remapping: `N` is unused
+    #[inline(always)]
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        let in_index = self.map_index(out_index, 0);
+        debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
         // so `out_x < H` and `out_y < W`, hence `in_x < W` and `in_y < H`,
         // therefore `in_idx < W * H * C == in_len(..) == data.len()`
-        Ok(unsafe { *data.get_unchecked(in_idx) })
+        Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
     #[inline(always)]
@@ -948,17 +998,28 @@ pub struct FlipHorizontal<const W: usize, const H: usize, const C: usize, T: Flo
     marker: core::marker::PhantomData<T>,
 }
 
+impl<const W: usize, const H: usize, const C: usize, T: Float> FlipHorizontal<W, H, C, T> {
+    pub fn new() -> Self {
+        Self {
+            marker: core::marker::PhantomData,
+        }
+    }
+}
+
 impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     for FlipHorizontal<W, H, C, T>
 {
-    type IndexRemapping = False;
+    type IndexRemapping = True;
 
     const IN_LEN: usize = W * H * C;
     const OUT_LEN: usize = W * H * C;
 
-    /// Pure index remapping: `N` is unused
+    // The logic equates to pure index remapping
     #[inline(always)]
-    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn map_index(&self, out_index: usize, _default_len: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % W;
@@ -967,13 +1028,18 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
         let in_x = W - 1 - out_x;
         let in_y = out_y;
 
-        let in_idx = (in_y * W + in_x) * C + out_c;
+        (in_y * W + in_x) * C + out_c
+    }
 
-        debug_assert!(in_idx < data.len());
+    /// Pure index remapping: `N` is unused
+    #[inline(always)]
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        let in_index = self.map_index(out_index, 0);
+        debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
         // so `out_x < W` (hence `in_x < W`) and `out_y < H`, therefore
         // `in_idx < W * H * C == in_len(..) == data.len()`
-        Ok(unsafe { *data.get_unchecked(in_idx) })
+        Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
     #[inline(always)]
@@ -1009,17 +1075,28 @@ pub struct FlipVertical<const W: usize, const H: usize, const C: usize, T: Float
     marker: core::marker::PhantomData<T>,
 }
 
+impl<const W: usize, const H: usize, const C: usize, T: Float> FlipVertical<W, H, C, T> {
+    pub fn new() -> Self {
+        Self {
+            marker: core::marker::PhantomData,
+        }
+    }
+}
+
 impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
     for FlipVertical<W, H, C, T>
 {
-    type IndexRemapping = False;
+    type IndexRemapping = True;
 
     const IN_LEN: usize = W * H * C;
     const OUT_LEN: usize = W * H * C;
 
-    /// Pure index remapping: `N` is unused
+    // The logic equates to pure index remapping
     #[inline(always)]
-    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+    fn map_index(&self, out_index: usize, _default_len: usize) -> usize
+    where
+        Self::IndexRemapping: IsTrue,
+    {
         let out_c = out_index % C;
         let pixel_index = out_index / C;
         let out_x = pixel_index % W;
@@ -1028,13 +1105,18 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
         let in_x = out_x;
         let in_y = H - 1 - out_y;
 
-        let in_idx = (in_y * W + in_x) * C + out_c;
+        (in_y * W + in_x) * C + out_c
+    }
 
-        debug_assert!(in_idx < data.len());
+    /// Pure index remapping: `N` is unused
+    #[inline(always)]
+    fn compute<N: NanHandler>(&self, data: &[T], out_index: usize) -> Result<T, PipeError> {
+        let in_index = self.map_index(out_index, 0);
+        debug_assert!(in_index < data.len());
         // SAFETY: caller contract: `out_index < out_len(..) == W * H * C`,
         // so `out_x < W` and `out_y < H` (hence `in_y < H`), therefore
         // `in_idx < W * H * C == in_len(..) == data.len()`
-        Ok(unsafe { *data.get_unchecked(in_idx) })
+        Ok(unsafe { *data.get_unchecked(in_index) })
     }
 
     #[inline(always)]

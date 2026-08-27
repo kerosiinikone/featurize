@@ -872,6 +872,84 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_rotate90_twice_rectangular() {
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 6];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Rotate90::<3, 2, 1, _>::new())
+            .apply_transform_fusable(Rotate90::<2, 3, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 6);
+        assert_eq!(out_buf, vec![6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn test_flip_horizontal_rectangular() {
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 6];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(FlipHorizontal::<3, 2, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 6);
+        assert_eq!(out_buf, vec![3.0, 2.0, 1.0, 6.0, 5.0, 4.0]);
+    }
+
+    #[test]
+    fn test_flip_horizontal_twice_rectangular() {
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 6];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(FlipHorizontal::<3, 2, 1, _>::new())
+            .apply_transform_fusable(FlipHorizontal::<3, 2, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 6);
+        assert_eq!(out_buf, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_flip_vertical_rectangular() {
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 6];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(FlipVertical::<3, 2, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 6);
+        assert_eq!(out_buf, vec![4.0, 5.0, 6.0, 1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_flip_vertical_twice_rectangular() {
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 6];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(FlipVertical::<3, 2, 1, _>::new())
+            .apply_transform_fusable(FlipVertical::<3, 2, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 6);
+        assert_eq!(out_buf, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
     fn test_hwc_to_chw() {
         // 2x2 image, 3 channels (HWC interleaved):
         // pixel(0,0)=[1,2,3] pixel(1,0)=[4,5,6]
@@ -947,6 +1025,146 @@ mod unit_tests {
 
         assert_eq!(n, 6);
         assert_eq!(out_buf, vec![0.0, 15.0, 0.0, 6.0, 0.0, 3.0]);
+    }
+
+    #[test]
+    fn test_scale2d_nearest_identity() {
+        // Same input/output size must be the identity
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0];
+        let mut out_buf = vec![0f32; 4];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<2, 2, 1, 2, 2, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        assert_eq!(out_buf, in_buf);
+    }
+
+    #[test]
+    fn test_scale2d_nearest_downscale() {
+        // 4x4 single-channel image with values 0..16 -> 2x2
+        // Nearest neighbor samples (0,0), (2,0), (0,2), (2,2)
+        let in_buf: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let mut out_buf = vec![0f32; 4];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<4, 4, 1, 2, 2, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        assert_eq!(out_buf, vec![0.0, 2.0, 8.0, 10.0]);
+    }
+
+    #[test]
+    fn test_scale2d_nearest_upscale() {
+        // 2x1 -> 4x1: nearest neighbor duplicates samples (no interpolation),
+        // in contrast to `Scale2DBilinear`
+        let in_buf = vec![0.0, 10.0];
+        let mut out_buf = vec![0f32; 4];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<2, 1, 1, 4, 1, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        assert_eq!(out_buf, vec![0.0, 0.0, 10.0, 10.0]);
+    }
+
+    #[test]
+    fn test_scale2d_nearest_multichannel() {
+        // 2x1 image, 3 channels (HWC): pixel0 = [1,2,3], pixel1 = [4,5,6]
+        // Upscaled to 4x1: each source pixel is duplicated, channels intact
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 12];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<2, 1, 3, 4, 1, 3, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 12);
+        assert_eq!(
+            out_buf,
+            vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 4.0, 5.0, 6.0]
+        );
+    }
+
+    #[test]
+    fn test_scale2d_nearest_channel_reduction() {
+        // 2x1 image, 3 channels -> 2x1 image, 1 channel: keeps channel 0
+        let in_buf = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut out_buf = vec![0f32; 2];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<2, 1, 3, 2, 1, 1, _>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 2);
+        assert_eq!(out_buf, vec![1.0, 4.0]);
+    }
+
+    #[test]
+    fn test_scale2d_nearest_in_chain() {
+        // Element ops before and after the (non-fusable) nearest-neighbor scale
+        let in_buf: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let mut out_buf = vec![0f32; 4];
+
+        let mut pipe = Pipeline::new()
+            .apply_element::<_, 16>(Add::new(1.0))
+            .apply_transform(Scale2D::<4, 4, 1, 2, 2, 1, _>::new())
+            .apply_element(Multiply::new(2.0))
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        // (0, 2, 8, 10) + 1 = (1, 3, 9, 11), then * 2
+        assert_eq!(out_buf, vec![2.0, 6.0, 18.0, 22.0]);
+    }
+
+    #[test]
+    fn test_scale2d_nearest_output_buffer_too_small() {
+        let in_buf: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let mut out_buf = vec![0f32; 3];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<4, 4, 1, 2, 2, 1, _>::new())
+            .build();
+
+        let result = pipe.execute(&in_buf, &mut out_buf);
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(matches!(
+                e.kind(),
+                featurize_core::errors::ErrorKind::InvalidOutputSize
+            ));
+        }
+    }
+
+    #[test]
+    fn test_scale2d_nearest_dynamic() {
+        let in_buf: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let mut out_buf = vec![0f32; 4];
+
+        let mut pipe = Pipeline::with_dynamic()
+            .apply_transform(Scale2D::<4, 4, 1, 2, 2, 1, _>::new())
+            .build_dynamic(16);
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        assert_eq!(out_buf, vec![0.0, 2.0, 8.0, 10.0]);
     }
 
     #[test]
@@ -1081,6 +1299,22 @@ mod unit_tests {
 
         assert_eq!(n, 6);
         assert_eq!(out_buf, vec![0.0, 0.0, 0.0, 15.0, 6.0, 3.0]);
+    }
+
+    #[test]
+    fn test_f64_scale2d_nearest() {
+        let in_buf = vec![0.0f64, 10.0];
+        let mut out_buf = vec![0f64; 4];
+
+        let mut pipe = Pipeline::new()
+            .apply_transform(Scale2D::<2, 1, 1, 4, 1, 1, f64>::new())
+            .build();
+
+        let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
+
+        assert_eq!(n, 4);
+        // Nearest neighbor: no interpolated (intermediate) values
+        assert_eq!(out_buf, vec![0.0, 0.0, 10.0, 10.0]);
     }
 
     #[test]
