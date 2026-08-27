@@ -6,13 +6,38 @@ members = [
     "examples/whisper-demo"
 ]
 
+# `env.MSRV` in .github/workflows/ci.yml.
+[workspace.package]
+edition = "2021"
+rust-version = "1.85.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kerosiinikone/featurize"
+authors = ["Onni Ahopelto <onni.ahopelto@gmail.com>"]
+
 [workspace.dependencies]
 rand = "0.8.7"
 rand_core = "0.6.4"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
 
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(docsrs)'] }
+# Once the public API is fully documented:
+# missing_docs = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+missing_safety_doc = "warn"
+todo = "warn"
+dbg_macro = "warn"
+
 [patch.crates-io]
+# WARNING: `[patch]` is a workspace-local override and is NOT propagated into a
+# published .crate. `cargo publish` verifies against the real crates.io `half`,
+# so this patch must be removable (i.e. the fix must be in a released `half`)
+# before `featurize-core` can be published with `burn`/`candle` enabled.
 half = { git = "https://github.com/starkat99/half-rs.git", branch = "main" }
 
 [profile.release]
@@ -21,9 +46,7 @@ lto = true
 codegen-units = 1
 strip = "debuginfo"
 
-[profile.release.package.llvm-demo]
-opt-level = 3
-
+# cargo-show-asm
 [profile.asm]
 inherits = "release"
 opt-level = 3

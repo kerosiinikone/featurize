@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  MSRV: "1.85.0"
+  CORE_CRATE: featurize-core
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: host / all features
+            target: ""
+            args: "-p featurize-core --all-targets --all-features"
+          - name: wasm32
+            target: wasm32-unknown-unknown
+            args: "-p featurize-core --lib --all-features"
+          - name: no_std (thumbv7em)
+            target: thumbv7em-none-eabi
+            args: "-p featurize-core --lib"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.target }}
+      - name: cargo clippy
+        env:
+          TARGET_FLAG: ${{ matrix.target != '' && format('--target={0}', matrix.target) || '' }}
+        run: cargo clippy ${TARGET_FLAG} ${{ matrix.args }} -- -D warnings
+
+  test:
+    name: test (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, msrv, nightly]
+    continue-on-error: ${{ matrix.toolchain == 'nightly' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve toolchain
+        id: tc
+        run: |
+          if [ "${{ matrix.toolchain }}" = "msrv" ]; then
+            echo "channel=${MSRV}" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=${{ matrix.toolchain }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.tc.outputs.channel }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test-${{ matrix.toolchain }}
+
+      - name: cargo check (MSRV, library only)
+        if: matrix.toolchain == 'msrv'
+        run: cargo check -p ${{ env.CORE_CRATE }} --lib
+
+      - name: cargo test (default features)
+        if: matrix.toolchain != 'msrv'
+        run: cargo test -p ${{ env.CORE_CRATE }}
+
+      - name: cargo test (all features)
+        if: matrix.toolchain != 'msrv'
+        run: cargo test -p ${{ env.CORE_CRATE }} --all-features
+
+      - name: cargo test (release + debug assertions)
+        if: matrix.toolchain == 'stable'
+        env:
+          RUSTFLAGS: "-C debug-assertions=yes -C overflow-checks=yes"
+        run: cargo test -p ${{ env.CORE_CRATE }} --release --all-features
+
+  features:
+    name: feature powerset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: hack
+      - uses: taiki-e/install-action@cargo-hack
+      - run: cargo hack check -p ${{ env.CORE_CRATE }} --feature-powerset --no-dev-deps
+
+  wasm:
+    name: build wasm32-unknown-unknown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+      - run: cargo build -p ${{ env.CORE_CRATE }} --lib --target wasm32-unknown-unknown
+      - run: cargo build -p ${{ env.CORE_CRATE }} --lib --target wasm32-unknown-unknown --all-features
+
+  no_std:
+    name: build no_std (thumbv7em-none-eabi)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: no-std
+      - run: cargo build -p ${{ env.CORE_CRATE }} --lib --target thumbv7em-none-eabi
+
+  examples:
+    name: check examples (wasm32)
+    runs-on: ubuntu-latest
+    # Browser demos -> check this
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: examples
+      - run: cargo check --workspace --target wasm32-unknown-unknown
+
+  docs:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: "-D warnings -D rustdoc::broken_intra_doc_links --cfg docsrs"
+        run: cargo doc -p ${{ env.CORE_CRATE }} --all-features --no-deps
+
+  package:
+    name: publish dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: package
+      - name: cargo publish --dry-run (default features)
+        run: cargo publish -p ${{ env.CORE_CRATE }} --dry-run
+
+      - name: cargo publish --dry-run (all features)
+        continue-on-error: true
+        run: cargo publish -p ${{ env.CORE_CRATE }} --dry-run --all-features
+
+  ci-success:
+    name: CI
+    if: always()
+    needs: [fmt, clippy, test, features, wasm, no_std, examples, docs, package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "All checks passed."
