@@ -42,4 +42,4 @@ The crate is `#![no_std]` (using `alloc`) and is verified in CI against:
 
 ## Status
 
-The crate is currently in early stages and lacks many functionalities of production-grade libraries. The multi-stage pipelines still hinder performance somewhat in order to safely allow both static and dynamic bounds in the pipelines (despite the use of scratch buffers, see *TBD*). The standard operation set included in the crate is quite small and should be improved in the future. The failing tests comprise of precision errors in `prop_add_subtract_inverse` and `prop_multiply_associative`.
+The crate is currently in early stages and lacks many functionalities of production-grade libraries. The multi-stage pipelines still hinder performance somewhat in order to safely allow both static and dynamic bounds (despite the use of scratch buffers, see *TBD*). The standard operation set included in the crate is quite small and should be improved in the future. The failing tests comprise of precision errors in `prop_add_subtract_inverse` and `prop_multiply_associative`.
