@@ -6,7 +6,7 @@ use crate::{
     },
 };
 
-/// Markers for pipeline type - internal use only
+// Markers for pipeline type - internal use only
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Static;
@@ -14,18 +14,26 @@ pub struct Static;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Dynamic;
 
-/// Initializer
+/// Initializer for the pipe builder
+///
+/// Use [`Pipeline::new`] to construct the pipe builder.
 #[derive(Debug, Default, Clone)]
 pub struct Pipeline;
 
 /// Wrapper for the pipeline stages
 ///
-/// Rotates a set of temporary buffers to avoid allocating mid pipe
+/// Rotates a set of temporary buffers to avoid allocating amidst the
+/// pipe. Exposes a `build` method for producing an executable pipe
+/// ([`PipeExec`]).
 ///
 /// The `N` type parameter is the pipeline-wide NaN policy
 /// ([`NanHandler`]); it is chosen once at construction time and is threaded
 /// through every stage / operation so the computation loops are
 /// monomorphized for exactly one check.
+///
+/// The `T` and `F` type parameters concern the internal typestate of the pipe.
+/// The marker type `State` distinguishes the head operation that is
+/// attached to the pipe implicitly (e.g. [`PipelineStatic::apply_element`]).
 #[derive(Debug, Default, Clone)]
 pub struct Pipe<T, F, State, N = FailOnNan>
 where
@@ -34,7 +42,6 @@ where
     N: NanHandler,
 {
     // Pipe typestate
-    // Accessing the underlying T -> helper methods
     pub(crate) stages: T,
     pub(crate) marker: core::marker::PhantomData<(State, F, N)>,
 }
@@ -43,7 +50,12 @@ where
 ///
 /// Scratch buffers `in_buf` and `out_buf` handle the allocations
 /// needed between `Link<...>` stages as here the original input
-/// buffer cannot be reused
+/// buffer cannot be reused.
+///
+/// Methods `execute` and `execute_from_bytes` are used to run the preprocessing
+/// pipeline.
+///
+/// For type parameters, see [`Pipe`].
 #[derive(Debug, Default, Clone)]
 pub struct PipeExec<T, N = FailOnNan, F = f32>
 where
@@ -53,12 +65,10 @@ where
 {
     // Pipe typestate
     pub(crate) stages: T,
-    #[allow(dead_code)]
     pub(crate) max_expected_input_length: Option<usize>,
     // These are allocated only at the build stage
     pub(crate) in_buf: alloc::boxed::Box<[F]>,
     pub(crate) out_buf: alloc::boxed::Box<[F]>,
-
     pub(crate) marker: core::marker::PhantomData<N>,
 }
 
@@ -66,23 +76,12 @@ where
 ///
 /// The concrete type of a `PipeExec` encodes the full stage composition.
 /// `PipeExecutor` erases that type behind a vtable while keeping the
-/// pipeline itself fully static and monomorphized internally: the only
+/// pipeline itself fully static and monomorphized internally; the only
 /// runtime cost is a single dynamic dispatch per `execute` call. Note that
 /// the NaN policy is *also* baked in at monomorphization time, so erasing
 /// the type does not reintroduce any per-element branching.
 ///
-/// Use `PipeExec::boxed` (or the `BoxedPipeExec` alias) to obtain one:
-///
-/// ```ignore
-/// let preprocessor: BoxedPipeExec = Pipeline::new()
-///     .apply_transform(...)
-///     .apply_element(...)
-///     .build()
-///     .boxed();
-/// ```
-///
-/// [`execute`]: PipeExecutor::execute
-//
+/// Use [`PipeExec::boxed`] (or the `BoxedPipeExec` alias) to obtain one.
 pub trait PipeExecutor<F: Float = f32> {
     /// See [`PipeExec::execute`]
     fn execute(&mut self, input: &[F], output_buf: &mut [F]) -> Result<usize, PipeError>;
@@ -121,24 +120,18 @@ where
     }
 }
 
-/// Must be documented why the pipeline struct constructors
-/// return a different type with each method.
+/// The pipeline constructors return either a *static* pipeline struct or
+/// a *dynamic* struct depending on the chosen constructor
+#[allow(clippy::new_ret_no_self)]
 impl Pipeline {
     /// Static pipeline with the default (fail fast) NaN policy
-    #[allow(clippy::new_ret_no_self)]
     pub fn new<T: Float>() -> PipelineStatic<T, FailOnNan> {
         PipelineStatic {
             marker: core::marker::PhantomData,
         }
     }
 
-    /// Static pipeline with an explicit, pipeline-wide NaN policy
-    ///
-    /// ```ignore
-    /// let pipe = Pipeline::new_with::<f32, ZeroOnNan>()
-    ///     .apply_element::<_, 128>(Div::new(255.0))
-    ///     .build();
-    /// ```
+    /// Static pipeline with an explicit, pipeline-wide NaN policy as type parameter
     pub fn new_with<T: Float, N: NanHandler>() -> PipelineStatic<T, N> {
         PipelineStatic {
             marker: core::marker::PhantomData,
@@ -152,7 +145,7 @@ impl Pipeline {
         }
     }
 
-    /// Dynamic pipeline with an explicit, pipeline-wide NaN policy
+    /// Dynamic pipeline with an explicit, pipeline-wide NaN policy as type parameter
     pub fn with_dynamic_and<T: Float, N: NanHandler>() -> PipelineDynamic<T, N> {
         PipelineDynamic {
             marker: core::marker::PhantomData,
@@ -180,7 +173,7 @@ impl<F: Float, N: NanHandler> PipelineStatic<F, N> {
         }
     }
 
-    /// Creates the initialized pipe implicitly (with size)
+    /// Creates the initialized pipe implicitly
     pub fn apply_element<T, const INPUT_LEN: usize>(
         self,
         op: T,
@@ -197,8 +190,7 @@ impl<F: Float, N: NanHandler> PipelineStatic<F, N> {
         }
     }
 
-    /// Creates the initialized pipe implicitly (with size implied -> transform operation must be
-    /// static!)
+    /// Creates the initialized pipe implicitly
     pub fn apply_transform<T>(self, op: T) -> Pipe<Head<T, Transform>, F, Static, N>
     where
         T: TransformOp<F>,
@@ -272,7 +264,7 @@ where
     F: Float,
     N: NanHandler,
 {
-    // The input data dims must be known at this point
+    // The input data dimensions (size) must be known at this point
     //
     // Buffer-size invariant: `MAX_BUF_SIZE` is the maximum of every stage's
     // static output length (and the head's input length), so each stage's
@@ -329,6 +321,7 @@ where
     F: Float,
     N: NanHandler,
 {
+    /// Execute the pipeline from a source data slice
     pub fn execute(&mut self, input: &[F], output_buf: &mut [F]) -> Result<usize, PipeError> {
         let out_buf = &mut self.out_buf;
         let in_buf = &mut self.in_buf;
@@ -337,8 +330,7 @@ where
         // buffer capacity before running its (unchecked) computation loop.
         //
         // `N` is the pipeline-wide, compile-time NaN policy: the whole stage
-        // tree below is monomorphized for it, so only the selected check is
-        // emitted inside the loops.
+        // tree below is monomorphized for it.
         let exec = self.stages.execute::<N>(input, in_buf, out_buf)?;
         let exec_len = exec.len();
 
@@ -350,6 +342,7 @@ where
         Ok(exec_len)
     }
 
+    /// Execute the pipeline from a source data buffer (bytes)
     pub fn execute_from_bytes(
         &mut self,
         input: &[u8],
@@ -362,6 +355,17 @@ where
         self.execute(floats, output_buf)
     }
 
+    /// Get the pipeline output data length
+    ///
+    /// Walks the pipeline stages and computes the dynamic or
+    /// static output length. In the static case this resolves
+    /// to the last operation's `OUT_LEN`. In the dynamic case
+    /// this method will try to guess the output length from
+    /// the operation set and defaults to the allocated output buffer
+    /// size (if there is one).
+    ///
+    /// NOTE: Prefer using the written floats count returned from calling the
+    /// `execute` method in the dynamic case.
     pub fn output_len(&self) -> usize {
         self.stages
             .out_len_dynamic(self.max_expected_input_length.unwrap_or(0))

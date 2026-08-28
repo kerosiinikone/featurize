@@ -78,43 +78,41 @@ jobs:
           TARGET_FLAG: ${{ matrix.target != '' && format('--target={0}', matrix.target) || '' }}
         run: cargo clippy ${TARGET_FLAG} ${{ matrix.args }} -- -D warnings ${{ matrix.allow }}
 
+  msrv:
+    name: check MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - name: cargo check (MSRV, library only)
+        run: cargo check -p ${{ env.CORE_CRATE }} --lib
+
   test:
     name: test (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        toolchain: [stable, msrv, nightly]
+        toolchain: [stable, nightly]
     continue-on-error: ${{ matrix.toolchain == 'nightly' }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve toolchain
-        id: tc
-        run: |
-          if [ "${{ matrix.toolchain }}" = "msrv" ]; then
-            echo "channel=${MSRV}" >> "$GITHUB_OUTPUT"
-          else
-            echo "channel=${{ matrix.toolchain }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ steps.tc.outputs.channel }}
+          toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: test-${{ matrix.toolchain }}
 
-      - name: cargo check (MSRV, library only)
-        if: matrix.toolchain == 'msrv'
-        run: cargo check -p ${{ env.CORE_CRATE }} --lib
-
       - name: cargo test (default features)
-        if: matrix.toolchain != 'msrv'
         run: cargo test -p ${{ env.CORE_CRATE }}
 
       - name: cargo test (all features)
-        if: matrix.toolchain != 'msrv'
         run: cargo test -p ${{ env.CORE_CRATE }} --all-features
 
       - name: cargo test (release + debug assertions)
@@ -210,7 +208,7 @@ jobs:
   ci-success:
     name: CI
     if: always()
-    needs: [fmt, clippy, test, features, wasm, no_std, examples, docs, package]
+    needs: [fmt, clippy, msrv, test, features, wasm, no_std, examples, docs, package]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any job failed

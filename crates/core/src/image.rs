@@ -14,8 +14,10 @@ pub enum ChannelLayout {
 }
 
 /// Grayscale operation (channel reduction)
-/// Converts multi-channel data to single channel using luminance weights for RGB
-/// or averaging for other channel counts
+///
+/// Converts multi-channel image data to single channel using:
+/// - RGB (3 or 4 channels): weighted luminance (0.299R + 0.587G + 0.114B)
+/// - Other channel counts: simple averaging
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Grayscale<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> {
     invert: bool,
@@ -155,7 +157,10 @@ impl<const IN_W: usize, const IN_H: usize, const IN_C: usize, T: Float> Transfor
 }
 
 /// Layout conversion: HWC (interleaved) -> CHW (planar)
-/// Pure index remapping, fuses with adjacent transforms.
+///
+/// Pure index remapping that converts from height-width-channel (HWC) layout
+/// to channel-height-width (CHW) layout. This is a zero-cost operation that
+/// can be fused with adjacent transforms.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct HwcToChw<const W: usize, const H: usize, const C: usize, T: Float> {
     marker: core::marker::PhantomData<T>,
@@ -299,7 +304,9 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
 }
 
 /// Per-channel normalization: `(x - mean[c]) / std[c]`
-/// ImageNet-style preprocessing; works on HWC or CHW buffers.
+///
+/// ImageNet-style preprocessing that applies different normalization
+/// parameters to each channel. Works on both HWC and CHW layouts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NormalizePerChannel<const W: usize, const H: usize, const C: usize, T: Float> {
     // Factor for each channel
@@ -390,6 +397,7 @@ impl<const W: usize, const H: usize, const C: usize, T: Float> TransformOp<T>
 }
 
 /// Simplest 2D scale operation for images
+///
 /// Scales an image from input dimensions to output dimensions using
 /// **nearest neighbor** sampling. For bilinear interpolation (the usual ML
 /// preprocessing default) use [`Scale2DBilinear`].
@@ -499,7 +507,10 @@ impl<
 }
 
 /// 2D Scale operation for images using **bilinear** interpolation
-/// (half-pixel-centers convention, matching common ML frameworks).
+///
+/// Uses the half-pixel-centers convention, matching common ML frameworks
+/// (PyTorch, TensorFlow). Provides smoother results than nearest neighbor
+/// at the cost of additional computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Scale2DBilinear<
     const IN_W: usize,
@@ -650,7 +661,9 @@ impl<
 }
 
 /// Crop operation for images
-/// Extracts a rectangular region from an image
+///
+/// Extracts a rectangular region from an image at a specified offset.
+/// The crop window must fit within the input dimensions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Crop<
     const IN_W: usize,
@@ -778,7 +791,10 @@ impl<
 
 /// Letterbox: aspect-preserving scale (nearest neighbor) into a centered
 /// window of the output, padding the remainder with `pad_value`
-/// (YOLO-style pad-to-aspect). Scaled size and offsets are computed once in
+///
+/// YOLO-style pad-to-aspect preprocessing. Scales the input to fit within
+/// the output dimensions while preserving aspect ratio, then centers it
+/// and pads the remainder. Scaled size and offsets are computed once in
 /// the constructor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Letterbox<

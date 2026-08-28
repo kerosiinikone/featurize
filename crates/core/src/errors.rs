@@ -22,12 +22,11 @@ pub enum ErrorKind {
     CandleTensorError,
 }
 
-/// Compile-time (monomorphized) NaN / infinity policy.
+/// Compile-time NaN policy
 ///
-/// The policy is chosen *once, per pipeline* (see
-/// [`crate::pipeline::Pipeline`]) and is threaded through every stage and
+/// The policy is chosen *once, per pipeline* and is threaded through every stage and
 /// operation as a generic type parameter. Because the implementors are
-/// zero-sized and every method is `#[inline(always)]`, the compiler sees a
+/// zero-sized and every method is inlined, the compiler sees a
 /// single, statically known check inside the computation loops:
 ///
 /// * [`FailOnNan`] - one `is_finite` test plus an early return
@@ -37,8 +36,12 @@ pub enum ErrorKind {
 /// * [`PropagateNan`] - no instructions at all; IEEE-754 values flow
 ///   through untouched.
 ///
-/// This replaces the old runtime `NanHandling` field that had to be matched
-/// on for every single element.
+/// # Performance
+///
+/// With [`FailOnNan`] there is naturally the possibility of having to return early on
+/// a sequence of data points. This means that auto-vectorization does not occur and
+/// this introduces a sizeable performance hit to the pipeline. The other two
+/// policies do not have a similar penalty.
 pub trait NanHandler: Default + Copy + 'static {
     /// The runtime-visible variant this policy corresponds to
     const HANDLING: NanHandling;
@@ -66,7 +69,7 @@ impl Default for NanHandling {
     }
 }
 
-/// Fail fast: the first non-finite value aborts the pipeline
+/// The first non-finite value aborts the pipeline
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FailOnNan;
 
@@ -74,7 +77,7 @@ pub struct FailOnNan;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ZeroOnNan;
 
-/// Pure IEEE 754 semantics: never inspect the value
+/// Never inspect the value
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PropagateNan;
 

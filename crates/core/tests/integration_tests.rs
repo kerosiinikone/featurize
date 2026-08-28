@@ -341,10 +341,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 

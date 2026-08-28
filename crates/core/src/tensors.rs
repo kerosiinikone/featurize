@@ -18,6 +18,8 @@ mod burn_ext {
     /// The pipeline-wide NaN policy is applied exactly as in
     /// [`PipeExec::execute`]: the stage tree is monomorphized for the
     /// handler chosen at construction time.
+    ///
+    /// NOTE: Not yet implemented for [`crate::pipeline::BoxedPipeExec`].
     pub trait IntoBurnTensor<F: Float = f32> {
         fn to_burn_tensor<B, const D: usize>(
             &mut self,
@@ -86,7 +88,6 @@ mod burn_ext {
             B: BackendTypes + Backend,
             F: bytemuck::Pod,
         {
-            // PipeExec::execute_from_bytes.
             let floats: &[F] = bytemuck::try_cast_slice(input)?;
             self.to_burn_tensor(floats, shape, device)
         }
@@ -119,6 +120,8 @@ mod candle_ext {
     /// The pipeline-wide NaN policy is applied exactly as in
     /// [`PipeExec::execute`]: the stage tree is monomorphized for the
     /// handler chosen at construction time.
+    ///
+    /// NOTE: Not yet implemented for [`crate::pipeline::BoxedPipeExec`].
     pub trait IntoCandleTensor<F: Float = f32> {
         fn to_candle_tensor<S: ShapeWithOneHole>(
             &mut self,
@@ -172,7 +175,6 @@ mod candle_ext {
         where
             F: bytemuck::Pod,
         {
-            // PipeExec::execute_from_bytes.
             let floats: &[F] = bytemuck::try_cast_slice(input)?;
             self.to_candle_tensor(floats, shape, device)
         }

@@ -304,7 +304,9 @@ impl<T: Float> ElementOp<T> for Sqrt<T> {
 }
 
 /// Truncate operation - reduces the length of the data vector
-/// Static for now, implementations for dynamic lenghts required
+///
+/// Pure index remapping operation that copies the first `NEW_LEN` elements
+/// from an input of length `ORIGINAL_LEN`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Truncate<const ORIGINAL_LEN: usize, const NEW_LEN: usize>;
 
@@ -367,6 +369,8 @@ impl<T: Float, const ORIGINAL_LEN: usize, const NEW_LEN: usize> TransformOp<T>
 }
 
 /// Transpose operation for 2D matrices stored in row-major order
+///
+/// Pure index remapping that transposes a `ROWS × COLS` matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Transpose<const ROWS: usize, const COLS: usize>;
 
@@ -509,6 +513,9 @@ impl<T: Float, const ORIGINAL_LEN: usize, const PADDED_LEN: usize> TransformOp<T
 }
 
 /// Reverse operation - reverses the order of elements
+///
+/// Pure index remapping that reverses the order of elements in a vector.
+/// Supports both static (`LEN > 0`) and dynamic (`LEN = 0`) lengths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Reverse<const LEN: usize>;
 

@@ -110,9 +110,7 @@ impl<T: Float> TransformOp<T> for ErrorOp {
 
     #[inline(always)]
     fn compute<N: NanHandler>(&self, _data: &[T], _index: usize) -> Result<T, PipeError> {
-        Err(PipeError::new(
-            ErrorKind::InvalidInputSize,
-        ))
+        Err(PipeError::new(ErrorKind::InvalidInputSize))
     }
 
     #[inline(always)]
@@ -122,9 +120,7 @@ impl<T: Float> TransformOp<T> for ErrorOp {
         _input: &[T],
         _n: usize,
     ) -> Result<&'o mut [T], PipeError> {
-        Err(PipeError::new(
-            ErrorKind::InvalidInputSize,
-        ))
+        Err(PipeError::new(ErrorKind::InvalidInputSize))
     }
 }
 
@@ -151,10 +147,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 
@@ -432,10 +425,7 @@ mod unit_tests {
 
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidOutputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidOutputSize));
         }
     }
 
@@ -517,10 +507,7 @@ mod unit_tests {
             .apply_element::<_, 3>(Multiply::new(2.0))
             .build();
 
-        assert_eq!(
-            pipe.nan_handling(),
-            NanHandling::Fail
-        );
+        assert_eq!(pipe.nan_handling(), NanHandling::Fail);
 
         let result = pipe.execute(&in_buf, &mut out_buf);
 
@@ -540,10 +527,7 @@ mod unit_tests {
             .apply_element::<_, 3>(Multiply::new(2.0))
             .build();
 
-        assert_eq!(
-            pipe.nan_handling(),
-            NanHandling::Zero
-        );
+        assert_eq!(pipe.nan_handling(), NanHandling::Zero);
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
 
@@ -562,10 +546,7 @@ mod unit_tests {
             .apply_element::<_, 3>(Multiply::new(2.0))
             .build();
 
-        assert_eq!(
-            pipe.nan_handling(),
-            NanHandling::Propagate
-        );
+        assert_eq!(pipe.nan_handling(), NanHandling::Propagate);
 
         let n = pipe.execute(&in_buf, &mut out_buf).unwrap();
 
@@ -697,10 +678,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidOutputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidOutputSize));
         }
     }
 
@@ -716,10 +694,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 
@@ -748,10 +723,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidOutputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidOutputSize));
         }
     }
 
@@ -767,10 +739,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 
@@ -786,10 +755,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 
@@ -829,10 +795,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidOutputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidOutputSize));
         }
     }
 
@@ -1148,10 +1111,7 @@ mod unit_tests {
 
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidOutputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidOutputSize));
         }
     }
 
@@ -1555,10 +1515,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 
@@ -1576,10 +1533,7 @@ mod unit_tests {
         let result = pipe.execute(&in_buf, &mut out_buf);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert!(matches!(
-                e.kind(),
-                ErrorKind::InvalidInputSize
-            ));
+            assert!(matches!(e.kind(), ErrorKind::InvalidInputSize));
         }
     }
 }

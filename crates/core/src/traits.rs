@@ -4,11 +4,12 @@ use crate::{
 };
 
 /// Sealing module to prevent external implementations of Stage
-pub(crate) mod sealed {
+#[doc(hidden)]
+mod sealed {
     pub trait Sealed<T> {}
 }
 
-/// Float trait bound for pipeline operations
+/// Float trait for pipeline operands
 pub trait Float:
     num_traits::Float + num_traits::FloatConst + Default + Copy + 'static + core::iter::Sum
 {
@@ -16,20 +17,19 @@ pub trait Float:
 impl Float for f32 {}
 impl Float for f64 {}
 
-/// The pipeline wrapper encloses these 'stages'
+/// The pipeline wrapper encloses these 'stages' of execution
 ///
 /// # NaN handling
 ///
 /// `execute` is generic over the pipeline-wide [`NanHandler`] policy `N`,
 /// which is forwarded unchanged to every operation. The whole stage tree is
 /// therefore monomorphized once per policy and the computation loops contain
-/// only the statically selected check (or none at all for
-/// [`crate::errors::PropagateNan`]).
+/// only the statically selected check.
 ///
 /// # Buffer-size invariants
 ///
 /// Every `execute` implementation is responsible for *proving* the bounds
-/// used by the unchecked inner computation loops:
+/// used by the unchecked inner computation loops;
 ///
 /// * `data.len()` is validated against the stage's static `IN_LEN` (or the
 ///   operation's dynamic `in_len()`),
@@ -50,7 +50,6 @@ pub trait Stage<T: Float = f32>: sealed::Sealed<T>
 where
     Self: Sized,
 {
-    // Iterator support -> build from typestate?
     const IN_LEN: usize;
     const OUT_LEN: usize;
     const MAX_BUF_SIZE: usize;
@@ -62,7 +61,7 @@ where
         out_buf: &'o mut [T],
     ) -> Result<&'o [T], PipeError>;
 
-    /// Internal; use with errors for better context
+    /// Used with errors for better context
     fn snapshot(&self) -> alloc::string::String;
 
     /// Computes the maximum buffer size dynamically
@@ -102,17 +101,14 @@ where
 
 /// Point-wise operations that work on individual elements
 ///
+/// Element operations transform each value independently without considering
+/// spatial relationships or indices. They preserve the length of the input.
+///
 /// # NaN handling
 ///
 /// `compute` is generic over the pipeline-wide [`NanHandler`] policy. An
 /// implementation must never decide the policy on its own; it simply routes
-/// its result through `N::check_finite(..)`:
-///
-/// ```ignore
-/// fn compute<N: NanHandler>(&self, data: T) -> Result<T, PipeError> {
-///     N::check_finite(data * self.factor)
-/// }
-/// ```
+/// its result through `N::check_finite(..)`.
 pub trait ElementOp<T: Float = f32>
 where
     Self: Sized,
@@ -129,6 +125,7 @@ where
         alloc::string::String::from(core::any::type_name::<Self>())
     }
 
+    /// Fuse with another `ElementOp` - internal use only
     #[inline(always)]
     fn fuse_element<U>(self, op: U) -> Fused<Self, U, ElementElement>
     where
@@ -142,6 +139,7 @@ where
         }
     }
 
+    /// Fuse with a `TransformOp` - internal use only
     #[inline(always)]
     fn fuse_transform<U>(self, op: U) -> Fused<U, Self, TransformElement>
     where
@@ -156,15 +154,22 @@ where
     }
 }
 
-// Associated types for IndexRemappable
+/// Associated types for IndexRemappable
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct True;
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct False;
+#[doc(hidden)]
 pub trait IsTrue {}
 impl IsTrue for True {}
 
 /// Spatial transformation operations that map from output index to computed value by sampling from input
+///
+/// Transform operations can change the length of the data, resample spatially,
+/// or remap indices. Unlike [`ElementOp`], they have access to the full input
+/// buffer and output index.
 ///
 /// # NaN handling
 ///
@@ -175,11 +180,11 @@ impl IsTrue for True {}
 ///
 /// # Implementor contract (relied upon by unchecked stage loops)
 ///
-/// The stages guarantee, before dispatching into an op:
+/// The stages guarantee, before dispatching into an op;
 /// * `input.len() == self.in_len(..)`,
 /// * `out.len() == n == self.out_len(..)`.
 ///
-/// In return, implementations must uphold:
+/// In return, implementations must uphold;
 /// * `execute` only reads `input[..in_len]` and only writes `out[..n]`,
 /// * `compute(data, out_index)` is only sound for `out_index < out_len(..)`
 ///   with `data.len() == in_len(..)` and must not access anything outside
@@ -190,8 +195,8 @@ impl IsTrue for True {}
 /// must validate those themselves (once per `execute` call, and with checked
 /// access in `compute`, since fused wrappers call `compute` directly).
 ///
-/// TODO: These dynamic operations define their own `in_len()` and `out_len()`. Dynamic operation example
-/// can be found at TBD
+/// Dynamic operations define their own `in_len()` and `out_len()` and *cannot*
+/// have `IN_LEN` and `OUT_LEN` of zero.
 pub trait TransformOp<T: Float = f32>
 where
     Self: Sized,
@@ -199,14 +204,15 @@ where
     /// Define whether an operation is a pure index remapping (can be fused)
     type IndexRemapping;
 
-    // Creating ops with helpers (either sized or not sized, global options?)
+    /// Input and output sizes of the operation
     const IN_LEN: usize = 0;
     const OUT_LEN: usize = 0;
+
     /// Check the validity of passed in data compared to what is known
     ///
     /// Asserted at *every* pipe-construction site (`apply_transform`,
     /// `apply_transform_fusable`, including heads of static and dynamic
-    /// pipes). Ops may cite this in `// SAFETY:` comments.
+    /// pipes).
     const INTERNAL_IS_VALID: bool = true;
 
     /// Get the name of this operation for error context
@@ -248,7 +254,7 @@ where
     /// Execute the transformation using chunk-based iteration (for stride operations)
     /// or index-based iteration (for non-linear operations)
     ///
-    /// Callers (the `Stage` impls) guarantee `out.len() == n == out_len(..)`
+    /// Callers (the `Stage` impls) guarantee `out.len() == n`
     /// and `input.len() == in_len(..)`.
     fn execute<'o, N: NanHandler>(
         &self,
@@ -283,6 +289,7 @@ where
         Self::OUT_LEN
     }
 
+    /// Fuse with an `ElementOp` - internal use only
     #[inline(always)]
     fn fuse_element<U>(self, op: U) -> Fused<Self, U, TransformElement>
     where
@@ -302,6 +309,7 @@ pub trait IndexRemappable<T: Float = f32>: TransformOp<T>
 where
     Self::IndexRemapping: IsTrue,
 {
+    /// Fuse with another fusable `TransformOp` - internal use only
     #[inline(always)]
     fn fuse_transform<U>(self, op: U) -> Fused<Self, U, TransformTransform>
     where
@@ -342,14 +350,12 @@ pub struct TransformTransform;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TransformElement;
 
-/// Generic over the previous operation and current
 /// Allows for fusing the operations - internal use only
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 pub struct Fused<T, S, FusedState = ElementElement> {
     pub(crate) prev_op: T,
     pub(crate) curr_op: S,
-
     marker: core::marker::PhantomData<FusedState>,
 }
 
@@ -597,7 +603,7 @@ impl<T: Float, U: ElementOp<T>, const INPUT_LEN: usize> Stage<T> for Head<U, Ele
         }
 
         // Checked against the *actual* allocation, not only the static
-        // constant: a static `build()` guarantees
+        // constant; a static `build()` guarantees
         // `out_buf.len() >= MAX_BUF_SIZE >= INPUT_LEN`, while a
         // `build_dynamic()` pipe may receive inputs larger than
         // `max_expected_input_length` -- those are rejected here
@@ -704,7 +710,7 @@ impl<T: Float, U: TransformOp<T>, const INPUT_LEN: usize> Stage<T>
         }
         let out = &mut out_buf[0..n];
 
-        // The TransformOp contract now holds: `data.len() == in_len(..)`
+        // The TransformOp contract now holds; `data.len() == in_len(..)`
         // and `out.len() == n == out_len(..)` -- the op's execute may rely
         // on exactly these bounds and must not access anything beyond them
         Ok(self.root_op.execute::<N>(out, data, n)?)
@@ -782,7 +788,7 @@ impl<T: Float, U: TransformOp<T>, S: Stage<T>> Stage<T> for Link<U, S, Transform
         let out = &mut out_buf[0..n];
 
         // TransformOp contract holds: `prev_out.len() == in_len(..)` and
-        // `out.len() == n == out_len(..)`. `prev_out` borrows `in_buf` while
+        // `out.len() == n`. `prev_out` borrows `in_buf` while
         // `out` borrows `out_buf`; the buffers are distinct allocations, so
         // no aliasing occurs
         Ok(self.curr_op.execute::<N>(out, prev_out, n)?)
