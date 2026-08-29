@@ -24,7 +24,7 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["console"] }
 # Featurize
-featurize-core = { path = "../../crates/core" }
+featurize-core = { path = "../../crates/core", features = ["burn"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

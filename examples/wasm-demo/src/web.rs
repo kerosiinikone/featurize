@@ -65,6 +65,7 @@ impl Mnist {
         }
         let mut preprocessed_data = vec![0.0; 28 * 28];
 
+        // NOTE: into_burn_tensor is not yet implemented for BoxedPipeExec
         if self
             .preprocessor
             .execute(rgba_data, &mut preprocessed_data)

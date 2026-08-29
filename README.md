@@ -1,7 +1,11 @@
-# featurize-core
+# featurize
 
-Compile-time-checked, (WASM) `no_std` preprocessing pipelines for simple numeric and image
-feature extraction. Pre-built (*WIP*) library of image and standard operations for manipulating data vectors via resampling, index remapping and point-wise operations. The crate allows for declaratively constructing fused preprocessing pipelines with minimal abstraction overhead.
+[![Crates.io](https://img.shields.io/crates/v/featurize-core.svg)](https://crates.io/crates/featurize-core)
+[![Documentation](https://docs.rs/featurize-core/badge.svg)](https://docs.rs/featurize-core)
+[![License](https://img.shields.io/crates/l/featurize-core.svg)](https://github.com/kerosiinikone/featurize#license)
+[![CI](https://github.com/kerosiinikone/featurize/workflows/CI/badge.svg)](https://github.com/kerosiinikone/featurize/actions)
+
+Compile-time-checked, `no_std` preprocessing pipelines for simple numeric and image feature extraction. Pre-built (*WIP*) library of image and standard operations for manipulating data vectors via resampling, index remapping and point-wise operations. The crate allows for declaratively constructing fused preprocessing pipelines with minimal abstraction overhead.
 
 ## Quick Start
 
@@ -20,9 +24,9 @@ let mut pipe = Pipeline::new_with::<f32, PropagateNan>()
 
 ## Trade-offs and motivation
 
-The crate is built around minimal abstraction overhead and compile-time safety feature preprocessing tasks. Considering the target environments (WASM) and the aforementioned goals, one major trade-off is between **runtime efficiency and binary size**. Monomorphization in the typestate composition increases the size of the crate and might cause issues in some resource-constrained `no_std` environments. This cannot currently be circumvented even with dynamic pipelines. 
+The crate is built around minimal abstraction overhead and compile-time safety in feature preprocessing tasks. Considering the target environments (WASM) and the aforementioned goals, one major trade-off is between **runtime efficiency and binary size**. Monomorphization in the typestate composition increases the size of the crate and might cause issues in some resource-constrained `no_std` environments. This cannot currently be circumvented even with dynamic pipelines. 
 
-Another trade-off is between NaN handling as a standalone operation (e.g. Python frameworks) in the chain and pipeline-wide NaN handling policies. As the crate does not make any assumptions about its consumers' the use-cases, the ability to "fail fast" in order to retain data integrity and avoid corrupted data in the front end application is necessary. Thus, the pipeline employs a policy-based strategy of allowing the consumer to choose between the behaviour of their pipelines depending on their preference between maximum efficiency (*default IEEE-754 NaN propagation behaviour, no-op*) and strict control (*failing fast on poor data*).
+Another trade-off is between NaN handling as a standalone operation (e.g. Python frameworks) in the chain and pipeline-wide NaN handling policies. As the crate does not make any assumptions about its consumers' use-cases, the ability to "fail fast" in order to retain data integrity and avoid corrupted data in the front end application is necessary. Thus, the pipeline employs a policy-based strategy of allowing the consumer to choose between the behaviour of their pipelines depending on their preference between maximum efficiency (*default IEEE-754 NaN propagation behaviour, no-op*) and strict control (*failing fast on poor data*).
 
 ## Features
 
@@ -42,4 +46,4 @@ The crate is `#![no_std]` (using `alloc`) and is verified in CI against:
 
 ## Status
 
-The crate is currently in early stages and lacks many functionalities of production-grade libraries. The multi-stage pipelines still hinder performance somewhat in order to safely allow both static and dynamic bounds (despite the use of scratch buffers, see *TBD*). The standard operation set included in the crate is quite small and should be improved in the future. The failing tests comprise of precision errors in `prop_add_subtract_inverse` and `prop_multiply_associative`.
+The crate is currently in early stages and lacks many functionalities of production-grade libraries. The multi-stage pipelines still hinder performance somewhat in order to safely allow both static and dynamic bounds (despite the use of pre-allocated scratch buffers, see *TBD*). The standard operation set included in the crate is quite small and should be improved in the future. The failing tests comprise of precision errors in `prop_add_subtract_inverse` and `prop_multiply_associative`.
