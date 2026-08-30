@@ -190,7 +190,7 @@ jobs:
         run: cargo doc -p ${{ env.CORE_CRATE }} --all-features --no-deps
 
   package:
-    name: publish dry-run
+    name: package verification
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
